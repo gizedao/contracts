@@ -27,6 +27,7 @@ module gize::proposal {
     }
 
     const ONE_UNDRED_SCALED_10000: u64 = 10000;
+    const MAX_CHOICES: u8 = 100;
 
     const ERR_INVALID_ADMIN: u64 = 1001;
     const ERR_INVALID_STATE: u64 = 1002;
@@ -70,24 +71,23 @@ module gize::proposal {
     const PROP_STATE_REJECTED:u8 = 4;
     const PROP_STATE_DELISTED:u8 = 5;
 
-
-    //@todo add more fields
     struct Proposal has key, store {
         id: UID,
+        owner: address,
         state: u8,
         name: vector<u8>,
         description: vector<u8>,
         thread_link: vector<u8>, //offchain discussion
         type: u8, //on chain| off chain
-        anonymous_boost: u64, //how many power for each anonymous ?
-        nft_boost: u64, //how many power for each nft ?
-        whitelist_token: VecSet<TypeName>, //must setup when NFT|token condition is required
-        whitelist_nft: VecSet<TypeName>, //must setup when NFT|token condition is required
+        anonymous_boost: u64, //factor, how many power per anonymous ?
+        nft_boost: u64, //factor, how many power per NFT ?
+        whitelist_token: VecSet<TypeName>, //whitelist token types used to power the vote
+        whitelist_nft: VecSet<TypeName>, //whitelist NFT types used to power the vote
         vote_power_threshold: u64, //minimum power allowed to vote
-        vote_type: u8, //single | multiple weighted. multiple equally is one special case
+        vote_type: u8, //single | multiple weighted. multiple equally is one special case of multiple weighted
         choices: VecMap<u8, Choice>, //fore example: code -> Choice!
         user_votes: Table<address, UserVote>, //cache user votes, to prevent double votes, support revoking votes
-        expire: u64, //expired time
+        expire: u64, //expired timestamp
     }
 
     struct BootConfig has drop, store, copy {
@@ -100,7 +100,6 @@ module gize::proposal {
         boost_factor: u64 //min power allowed
     }
 
-    //@todo more DAO config
     struct Dao has key, store {
         id: UID,
         operators: Table<address, OperatorConfig>,     //operator roles
@@ -168,16 +167,16 @@ module gize::proposal {
         state: u8,
         name: vector<u8>,
         description: vector<u8>,
-        thread_link: vector<u8>, //offchain discussion
-        type: u8, //on chain| off chain
-        anonymous_boost: u64, //how many power for each anonymous ?
-        nft_boost: u64, //how many power for each nft ?
-        whitelist_token: VecSet<TypeName>, //must setup when NFT|token condition is required
-        whitelist_nft: VecSet<TypeName>, //must setup when NFT|token condition is required
-        vote_power_threshold: u64, //minimum power allowed to vote
-        vote_type: u8, //single | multiple weighted. multiple equally is one special case
-        choices: VecMap<u8, Choice>, //fore example: code -> Choice!
-        expire: u64, //expired time
+        thread_link: vector<u8>,
+        type: u8,
+        anonymous_boost: u64,
+        nft_boost: u64,
+        whitelist_token: VecSet<TypeName>,
+        whitelist_nft: VecSet<TypeName>,
+        vote_power_threshold: u64,
+        vote_type: u8,
+        choices: VecMap<u8, Choice>,
+        expire: u64,
         total_users: u64
     }
 
@@ -206,7 +205,8 @@ module gize::proposal {
         });
     }
 
-    public fun setDaoOperator(_admin: &AdminCap, dao: &mut Dao, operatorAddr: address, expireTime: u64, boostFactor: u64, sclock: &Clock, _ctx: &mut TxContext){
+    public fun setDaoOperator(_admin: &AdminCap, dao: &mut Dao, operatorAddr: address, expireTime: u64,
+                              boostFactor: u64, sclock: &Clock, _ctx: &mut TxContext){
         assert!(expireTime > clock::timestamp_ms(sclock), ERR_INVALID_EXPIRE_TIME);
         let registry = &mut dao.operators;
         if(table::contains(registry, operatorAddr)){
@@ -265,9 +265,10 @@ module gize::proposal {
                                      token_condition_threshold: u64,
                                      expire: u64,
                                      dao: &mut Dao,
+                                     sclock: &Clock,
                                      ctx: &mut TxContext) {
         submitProposal_(name, description, thread_link, type,
-            anonymous_boost, nft_boost, token_condition_threshold, vote_type, expire, dao, ctx);
+            anonymous_boost, nft_boost, token_condition_threshold, vote_type, expire, dao, sclock, ctx);
     }
 
     public fun submitProposalByOperator(name: vector<u8>,
@@ -286,10 +287,9 @@ module gize::proposal {
         let operatorReg = &dao.operators;
         assert!(table::contains(operatorReg, senderAddr), ERR_ACCESS_DENIED);
         assert!(table::borrow(operatorReg, senderAddr).expire > clock::timestamp_ms(sclock), ERR_OPERATOR_EXPIRED);
-        submitProposal_(name, description, thread_link, type, anonymous_boost, nft_boost, vote_power_threshold, vote_type, expire, dao, ctx);
+        submitProposal_(name, description, thread_link, type, anonymous_boost, nft_boost, vote_power_threshold, vote_type, expire, dao, sclock, ctx);
     }
 
-    //@todo
     public fun submitProposalByToken<TOKEN>(name: vector<u8>,
                                      description: vector<u8>,
                                      thread_link: vector<u8>,
@@ -301,14 +301,15 @@ module gize::proposal {
                                      expire: u64,
                                      dao: &mut Dao,
                                      token: &Coin<TOKEN>,
+                                     sclock: &Clock,
                                      ctx: &mut TxContext) {
-        let reg = &dao.token_boost;
+        let boostReg = &dao.token_boost;
         let tokenType = type_name::get<TOKEN>();
-        assert!(table::contains(reg, tokenType), ERR_ACCESS_DENIED);
-        let config = table::borrow(reg, tokenType);
+        assert!(table::contains(boostReg, tokenType), ERR_ACCESS_DENIED);
+        let config = table::borrow(boostReg, tokenType);
         assert!(config.boost_factor * coin::value(token) >= config.threshold , ERR_ACCESS_DENIED);
 
-        submitProposal_(name, description, thread_link, type, anonymous_boost, nft_boost,  vote_power_threshold, vote_type, expire, dao, ctx);
+        submitProposal_(name, description, thread_link, type, anonymous_boost, nft_boost,  vote_power_threshold, vote_type, expire, dao, sclock, ctx);
     }
 
     public fun submitProposalByNfts<NFT: key + store>(name: vector<u8>,
@@ -321,20 +322,20 @@ module gize::proposal {
                                                       vote_type: u8,
                                                       expire: u64,
                                                       dao: &mut Dao,
+                                                      sclock: &Clock,
                                                       nfts: vector<NFT>,
-                                        ctx: &mut TxContext) {
-        let reg = &dao.token_boost;
+                                                      ctx: &mut TxContext) {
+        let boostReg = &dao.token_boost;
         let nftType = type_name::get<NFT>();
-        assert!(table::contains(reg, nftType), ERR_ACCESS_DENIED);
-        let config = table::borrow(reg, nftType);
+        assert!(table::contains(boostReg, nftType), ERR_ACCESS_DENIED);
+        let config = table::borrow(boostReg, nftType);
         assert!(config.boost_factor * vector::length(&nfts) >= config.threshold , ERR_ACCESS_DENIED);
-        submitProposal_(name, description, thread_link, type, anonymous_boost, nft_boost,  vote_power_threshold, vote_type, expire, dao, ctx);
+        submitProposal_(name, description, thread_link, type, anonymous_boost, nft_boost,  vote_power_threshold, vote_type, expire, dao, sclock, ctx);
 
-        //transfer back to owner
+        //CRITICAL: transfer back to owner
         transfer_objects_vector(nfts, ctx);
     }
 
-    //@todo verify params
     fun submitProposal_(name: vector<u8>,
                         description: vector<u8>,
                         thread_link: vector<u8>,
@@ -345,9 +346,18 @@ module gize::proposal {
                         vote_type: u8,
                         expire: u64,
                         dao: &mut Dao,
+                        sclock: &Clock,
                         ctx: &mut TxContext){
+
+        assert!(vector::length(&description) > 0
+                && vector::length(&thread_link) > 0
+                && (type == PROPOSAL_TYPE_ONCHAIN || type == PROPOSAL_TYPE_OFFCHAIN)
+                && (vote_type == PROPOSAL_VOTE_TYPE_SINGLE || vote_type == PROPOSAL_VOTE_TYPE_MULTI_WEIGHT)
+                && expire > clock::timestamp_ms(sclock), ERR_INVALID_PARAMS);
+
         let prop = Proposal{
             id: object::new(ctx),
+            owner: sender(ctx),
             state: PROP_STATE_INIT,
             name,
             description,
@@ -385,64 +395,81 @@ module gize::proposal {
         emit(event)
     }
 
-    public fun addProposalWhitelistToken<TOKEN>(_admin: &AdminCap,
-                                         propAddr: address,
-                                         dao: &mut Dao,
-                                         _ctx: &mut TxContext){
-        let prop = table::borrow_mut<address, Proposal>(&mut dao.proposals, propAddr);
+    public fun addProposalWhitelistToken<TOKEN>(proposalId: address,
+                                                dao: &mut Dao,
+                                                ctx: &mut TxContext){
+        assert!(table::contains(&mut dao.proposals, proposalId), ERR_PROPOSAL_NOT_FOUND);
+        let prop = table::borrow_mut(&mut dao.proposals, proposalId);
         assert!(prop.state == PROP_STATE_INIT, ERR_INVALID_STATE);
+        assert!(prop.owner == sender(ctx), ERR_ACCESS_DENIED);
         vec_set::insert(&mut prop.whitelist_token, type_name::get<TOKEN>());
     }
 
-    public fun addProposalWhitelistNft<NFT>(_admin: &AdminCap,
-                                         propAddr: address,
-                                         dao: &mut Dao,
-                                       _ctx: &mut TxContext){
-        let prop = table::borrow_mut<address, Proposal>(&mut dao.proposals, propAddr);
+    public fun addProposalWhitelistNft<NFT>(proposalId: address,
+                                            dao: &mut Dao,
+                                            ctx: &mut TxContext){
+        assert!(table::contains(&mut dao.proposals, proposalId), ERR_PROPOSAL_NOT_FOUND);
+        let prop = table::borrow_mut(&mut dao.proposals, proposalId);
         assert!(prop.state == PROP_STATE_INIT, ERR_INVALID_STATE);
+        assert!(prop.owner == sender(ctx), ERR_ACCESS_DENIED);
         vec_set::insert(&mut prop.whitelist_nft, type_name::get<NFT>());
     }
 
-    ///
-    /// @todo verify
-    ///
-    fun addProposalChoice<NFT>(_admin: &AdminCap,
-                                code: u8,
-                                name: vector<u8>,
-                                threshold: u64,
-                                propAddr: address,
-                                dao: &mut Dao,
-                                _ctx: &mut TxContext){
-        let prop = table::borrow_mut<address, Proposal>(&mut dao.proposals, propAddr);
+
+    fun addProposalChoice<NFT>(code: u8,
+                               name: vector<u8>,
+                               threshold: u64,
+                               proposalId: address,
+                               dao: &mut Dao,
+                               _ctx: &mut TxContext){
+        assert!(table::contains(&mut dao.proposals, proposalId), ERR_PROPOSAL_NOT_FOUND);
+        let prop = table::borrow_mut(&mut dao.proposals, proposalId);
         assert!(prop.state == PROP_STATE_INIT, ERR_INVALID_STATE);
-        assert!(vector::length(&name) > 0 && threshold > 0 && vec_map::contains(&mut prop.choices, &code), ERR_INVALID_CHOICE);
-        let choice =  Choice {
-            code,
-            name,
-            total_vote: 0u64,
-            threshold
+        assert!(prop.owner == sender(_ctx), ERR_ACCESS_DENIED);
+
+        assert!((code < MAX_CHOICES)
+                && vector::length(&name) > 0
+                && threshold > 0
+                && vec_map::contains(&mut prop.choices, &code)
+                , ERR_INVALID_CHOICE);
+
+        if(vec_map::contains(&mut prop.choices, &code)){
+            let choice = vec_map::get_mut(&mut prop.choices, &code);
+            choice.name = name;
+            choice.threshold  = threshold;
+            choice.total_vote = 0;
+            event::emit(ProposalChoiceAddedEvent {
+                id: proposalId,
+                choice: *choice
+            })
+        } else{
+            let choice =  Choice {
+                code,
+                name,
+                total_vote: 0u64,
+                threshold
+            };
+
+            vec_map::insert(&mut prop.choices, code, choice);
+            event::emit(ProposalChoiceAddedEvent {
+                id: proposalId,
+                choice
+            })
         };
-
-        vec_map::insert(&mut prop.choices, code, choice);
-
-        event::emit(ProposalChoiceAddedEvent {
-            id: propAddr,
-            choice
-        })
     }
 
-    ///
-    /// @todo verify
-    ///
-    fun listProposal(propAddr: address,
-                     dao: &mut Dao,
-                     _ctx: &mut TxContext){
-        let prop = table::borrow_mut<address, Proposal>(&mut dao.proposals, propAddr);
+    public fun listProposal(proposalId: address,
+                            dao: &mut Dao,
+                            sclock: &Clock,
+                            ctx: &mut TxContext){
+        let prop = table::borrow_mut(&mut dao.proposals, proposalId);
+        assert!(prop.owner == sender(ctx), ERR_ACCESS_DENIED);
         assert!(prop.state == PROP_STATE_INIT, ERR_INVALID_STATE);
+        assert!(vec_map::size(&prop.choices) > 0 && clock::timestamp_ms(sclock) < prop.expire, ERR_INVALID_PARAMS);
         prop.state  = PROP_STATE_PENDING;
 
         emit(ProposalListedEvent {
-            id: propAddr,
+            id: proposalId,
             state: prop.state,
             name: prop.name,
             description: prop.description,
@@ -459,19 +486,18 @@ module gize::proposal {
         })
     }
 
-    ///
-    /// @todo verify
-    fun delistProposal(propAddr: address,
-                         dao: &mut Dao,
-                         _ctx: &mut TxContext){
+    public fun delistProposal(proposalId: address,
+                       dao: &mut Dao,
+                       ctx: &mut TxContext){
 
-        assert!(table::contains(&dao.proposals, propAddr), ERR_PROPOSAL_NOT_FOUND);
-        let prop = table::borrow_mut<address, Proposal>(&mut dao.proposals, propAddr);
+        assert!(table::contains(&dao.proposals, proposalId), ERR_PROPOSAL_NOT_FOUND);
+        let prop = table::borrow_mut(&mut dao.proposals, proposalId);
+        assert!(prop.owner == sender(ctx), ERR_ACCESS_DENIED);
         assert!(prop.state == PROP_STATE_INIT, ERR_INVALID_STATE);
         prop.state  = PROP_STATE_DELISTED;
 
         emit(ProposalDelistedEvent {
-            id: propAddr,
+            id: proposalId,
             state: prop.state,
             name: prop.name,
             description: prop.description,
@@ -487,17 +513,17 @@ module gize::proposal {
             expire: prop.expire,
         });
 
-        destroyProposal(table::remove(&mut dao.proposals, propAddr));
+        destroyProposal(table::remove(&mut dao.proposals, proposalId));
     }
 
     ///
-    /// @todo
+    /// @todo review
     ///
     public fun voteByToken<TOKEN: key + store>(propAddr: address, dao: &mut Dao, choices: vector<u8>, choice_values: vector<u64>, power: &Coin<TOKEN>, sclock: &Clock, ctx: &mut TxContext){
         //validate params
         assert!(table::contains(&dao.proposals, propAddr), ERR_PROPOSAL_NOT_FOUND);
         let now_ms = clock::timestamp_ms(sclock);
-        let prop = table::borrow_mut<address, Proposal>(&mut dao.proposals, propAddr);
+        let prop = table::borrow_mut(&mut dao.proposals, propAddr);
         assert!(prop.state == PROP_STATE_PENDING &&(now_ms < prop.expire) && prop.type == PROPOSAL_TYPE_ONCHAIN , ERR_INVALID_STATE);
 
         //whitelisted ?
@@ -524,7 +550,7 @@ module gize::proposal {
         //validate params
         assert!(table::contains(&dao.proposals, propAddr), ERR_PROPOSAL_NOT_FOUND);
         let now_ms = clock::timestamp_ms(sclock);
-        let prop = table::borrow_mut<address, Proposal>(&mut dao.proposals, propAddr);
+        let prop = table::borrow_mut(&mut dao.proposals, propAddr);
         assert!(prop.state == PROP_STATE_PENDING &&(now_ms < prop.expire) && prop.type == PROPOSAL_TYPE_ONCHAIN, ERR_INVALID_STATE);
 
         //white listed ?
@@ -553,7 +579,7 @@ module gize::proposal {
         //validate params
         assert!(table::contains(&dao.proposals, propAddr), ERR_PROPOSAL_NOT_FOUND);
         let now_ms = clock::timestamp_ms(sclock);
-        let prop = table::borrow_mut<address, Proposal>(&mut dao.proposals, propAddr);
+        let prop = table::borrow_mut(&mut dao.proposals, propAddr);
         assert!(prop.state == PROP_STATE_PENDING &&(now_ms < prop.expire) && prop.type == PROPOSAL_TYPE_ONCHAIN, ERR_INVALID_STATE);
 
         //distribute vote
@@ -571,7 +597,7 @@ module gize::proposal {
         //validate params
         assert!(table::contains(&dao.proposals, propAddr), ERR_PROPOSAL_NOT_FOUND);
         let now_ms = clock::timestamp_ms(sclock);
-        let prop = table::borrow_mut<address, Proposal>(&mut dao.proposals, propAddr);
+        let prop = table::borrow_mut(&mut dao.proposals, propAddr);
         assert!(prop.state == PROP_STATE_PENDING && (now_ms < prop.expire) && prop.type == PROPOSAL_TYPE_ONCHAIN, ERR_INVALID_STATE);
 
         let senderAddr = sender(ctx);
@@ -620,7 +646,7 @@ module gize::proposal {
         //validate params
         assert!(table::contains(&dao.proposals, propAddr), ERR_PROPOSAL_NOT_FOUND);
         let now_ms = clock::timestamp_ms(sclock);
-        let prop = table::borrow_mut<address, Proposal>(&mut dao.proposals, propAddr);
+        let prop = table::borrow_mut(&mut dao.proposals, propAddr);
         assert!(prop.state == PROP_STATE_PENDING && (now_ms >= prop.expire) && prop.type == PROPOSAL_TYPE_ONCHAIN, ERR_INVALID_STATE);
 
         //finalize state, what is success ?
@@ -705,6 +731,7 @@ module gize::proposal {
     fun destroyProposal(prop: Proposal){
         let Proposal {
             id,
+            owner: _owner,
             state: _state,
             name: _name,
             description: _description,
