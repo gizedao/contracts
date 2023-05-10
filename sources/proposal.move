@@ -26,26 +26,6 @@ module gize::proposal {
         id: UID
     }
 
-    struct OperatorCap has key, store {
-        id: UID,
-        weight: u64
-    }
-
-    struct NftBoostCap has key, store {
-        id: UID,
-        weight: u64
-    }
-
-    struct TokenBoostCap has key, store {
-        id: UID,
-        weight: u64
-    }
-
-    struct ProposalCap has key, store {
-        id: UID,
-        weight: u64
-    }
-
     const ONE_UNDRED_SCALED_10000: u64 = 10000;
 
     const ERR_INVALID_ADMIN: u64 = 1001;
@@ -57,7 +37,9 @@ module gize::proposal {
     const ERR_INVALID_TOKEN_NFT: u64 = 1007;
     const ERR_ALREADY_VOTED: u64 = 1008;
     const ERR_NOT_VOTED: u64 = 1009;
-
+    const ERR_INVALID_EXPIRE_TIME: u64 = 1010;
+    const ERR_OPERATOR_EXPIRED: u64 = 1011;
+    const ERR_ACCESS_DENIED: u64 = 1012;
 
     const PROPOSAL_TYPE_ONCHAIN: u8 = 1;  //on chain, ready for voting
     const PROPOSAL_TYPE_OFFCHAIN: u8 = 2; //off chain, no need to vote
@@ -108,12 +90,22 @@ module gize::proposal {
         expire: u64, //expired time
     }
 
+    struct BootConfig has drop, store, copy {
+        boost_factor: u64, //multiplied boost factor, for example: anonymous = 100, NFT = 10000, token = 1
+        threshold: u64 //min power allowed
+    }
+
+    struct OperatorConfig has drop, store, copy {
+        expire: u64, //expire timestamp
+        boost_factor: u64 //min power allowed
+    }
+
     //@todo more DAO config
     struct Dao has key, store {
         id: UID,
-        operators: Table<address, u64>,
-        nft_boost: Table<TypeName, u64>,
-        token_boost: Table<TypeName, u64>,
+        operators: Table<address, OperatorConfig>,     //operator roles
+        nft_boost: Table<TypeName, BootConfig>,    //nft whitelist with boost power
+        token_boost: Table<TypeName, BootConfig>,  //which token allowed to make proposal
         proposals: Table<address, Proposal>
     }
 
@@ -204,18 +196,6 @@ module gize::proposal {
         choice: Choice
     }
 
-    //just verify, do not secure
-    //@todo
-    public fun exchangeNftToCap<NFT: key + store>(_nft: &NFT, _ctx: &mut TxContext){
-
-    }
-
-    //just verify, do not secure
-    //@todo
-    public fun exchangeTokenToCap<TOKEN: key + store>(_token: &Coin<TOKEN>, _ctx: &mut TxContext){
-
-    }
-
     public fun createDao(_admin: &AdminCap, ctx: &mut TxContext){
         public_share_object(Dao {
             id: object::new(ctx),
@@ -224,6 +204,51 @@ module gize::proposal {
             token_boost: table::new(ctx),
             proposals: table::new(ctx)
         });
+    }
+
+    public fun setDaoOperator(_admin: &AdminCap, dao: &mut Dao, operatorAddr: address, expireTime: u64, boostFactor: u64, sclock: &Clock, _ctx: &mut TxContext){
+        assert!(expireTime > clock::timestamp_ms(sclock), ERR_INVALID_EXPIRE_TIME);
+        let registry = &mut dao.operators;
+        if(table::contains(registry, operatorAddr)){
+            table::borrow_mut(registry, operatorAddr).expire = expireTime;
+            table::borrow_mut(registry, operatorAddr).boost_factor = boostFactor;
+        }
+        else{
+            table::add( registry, operatorAddr, OperatorConfig {
+                boost_factor: boostFactor,
+                expire: expireTime
+            })
+        }
+    }
+
+    public fun setDaoNftBoostConfig<NFT: key + store>(_admin: &AdminCap, dao: &mut Dao, boostFactor: u64, threshold: u64, _ctx: &mut TxContext){
+        let registry = &mut dao.nft_boost;
+        let type = type_name::get<NFT>();
+        if(table::contains(registry, type)){
+            table::borrow_mut<TypeName, BootConfig>(registry, type).threshold = threshold;
+            table::borrow_mut<TypeName, BootConfig>(registry, type).boost_factor = boostFactor;
+        }
+        else{
+            table::add( registry, type, BootConfig {
+                boost_factor: boostFactor,
+                threshold
+            })
+        }
+    }
+
+    public fun setDaoTokenBoostConfig<TOKEN>(_admin: &AdminCap, dao: &mut Dao, boostFactor: u64, threshold: u64, _ctx: &mut TxContext){
+        let registry = &mut dao.token_boost;
+        let type = type_name::get<TOKEN>();
+        if(table::contains(registry, type)){
+            table::borrow_mut<TypeName, BootConfig>(registry, type).threshold = threshold;
+            table::borrow_mut<TypeName, BootConfig>(registry, type).boost_factor = boostFactor;
+        }
+        else{
+            table::add(registry, type, BootConfig {
+                boost_factor: boostFactor,
+                threshold
+            })
+        }
     }
 
     public fun submitProposalByAdmin(_admin: &AdminCap,
@@ -242,8 +267,7 @@ module gize::proposal {
             anonymous_boost, nft_boost, token_condition_threshold, vote_type, expire, dao, ctx);
     }
 
-    public fun submitProposalByOperator(_admin: &OperatorCap,
-                                        name: vector<u8>,
+    public fun submitProposalByOperator(name: vector<u8>,
                                         description: vector<u8>,
                                         thread_link: vector<u8>,
                                         type: u8,
@@ -253,38 +277,55 @@ module gize::proposal {
                                         vote_type: u8,
                                         expire: u64,
                                         dao: &mut Dao,
+                                        sclock: &Clock,
                                         ctx: &mut TxContext) {
+        let senderAddr = sender(ctx);
+        let operatorReg = &dao.operators;
+        assert!(table::contains(operatorReg, senderAddr), ERR_ACCESS_DENIED);
+        assert!(table::borrow(operatorReg, senderAddr).expire > clock::timestamp_ms(sclock), ERR_OPERATOR_EXPIRED);
         submitProposal_(name, description, thread_link, type, anonymous_boost, nft_boost, vote_power_threshold, vote_type, expire, dao, ctx);
     }
 
-    public fun submitProposal(_nftCap: &ProposalCap,
-                              name: vector<u8>,
-                              description: vector<u8>,
-                              thread_link: vector<u8>,
-                              type: u8,
-                              anonymous_boost: u64,
-                              nft_boost: u64,
-                              vote_power_threshold: u64,
-                              vote_type: u8,
-                              expire: u64,
-                              dao: &mut Dao,
-                              ctx: &mut TxContext) {
+    //@todo
+    public fun submitProposalByToken<TOKEN>(name: vector<u8>,
+                                     description: vector<u8>,
+                                     thread_link: vector<u8>,
+                                     type: u8,
+                                     anonymous_boost: u64,
+                                     nft_boost: u64,
+                                     vote_power_threshold: u64,
+                                     vote_type: u8,
+                                     expire: u64,
+                                     dao: &mut Dao,
+                                     token: &Coin<TOKEN>,
+                                     ctx: &mut TxContext) {
+        let reg = &dao.token_boost;
+        let tokenType = type_name::get<TOKEN>();
+        assert!(table::contains(reg, tokenType), ERR_ACCESS_DENIED);
+        let config = table::borrow(reg, tokenType);
+        assert!(config.boost_factor * coin::value(token) >= config.threshold , ERR_ACCESS_DENIED);
+
         submitProposal_(name, description, thread_link, type, anonymous_boost, nft_boost,  vote_power_threshold, vote_type, expire, dao, ctx);
     }
 
-    //@todo
-    public fun submitProposalByTokenCap(_tokenCap: &TokenBoostCap,
-                                        name: vector<u8>,
-                                        description: vector<u8>,
-                                        thread_link: vector<u8>,
-                                        type: u8,
-                                        anonymous_boost: u64,
-                                        nft_boost: u64,
-                                        vote_power_threshold: u64,
-                                        vote_type: u8,
-                                        expire: u64,
-                                        dao: &mut Dao,
+    //@todo support list of vectors
+    public fun submitProposalByNfts<NFT: key + store>(name: vector<u8>,
+                                                      description: vector<u8>,
+                                                      thread_link: vector<u8>,
+                                                      type: u8,
+                                                      anonymous_boost: u64,
+                                                      nft_boost: u64,
+                                                      vote_power_threshold: u64,
+                                                      vote_type: u8,
+                                                      expire: u64,
+                                                      dao: &mut Dao,
+                                                      _nfts: &NFT, //@fixme can we pass this to entry function from SDK ?
                                         ctx: &mut TxContext) {
+        let reg = &dao.token_boost;
+        let nftType = type_name::get<NFT>();
+        assert!(table::contains(reg, nftType), ERR_ACCESS_DENIED);
+        let config = table::borrow(reg, nftType);
+        assert!(config.boost_factor >= config.threshold , ERR_ACCESS_DENIED);
         submitProposal_(name, description, thread_link, type, anonymous_boost, nft_boost,  vote_power_threshold, vote_type, expire, dao, ctx);
     }
 

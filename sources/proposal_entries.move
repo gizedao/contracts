@@ -1,11 +1,28 @@
 module gize::proposal_entries {
-    use gize::proposal::{AdminCap, Dao, OperatorCap, TokenBoostCap, ProposalCap};
+    use gize::proposal::{AdminCap, Dao};
     use sui::tx_context::TxContext;
     use gize::proposal;
     use sui::coin::Coin;
     use sui::clock::Clock;
 
-    public fun submitProposalByAdmin(_admin: &AdminCap,
+    public entry fun createDao(admin: &AdminCap, ctx: &mut TxContext){
+        proposal::createDao(admin, ctx);
+    }
+
+    public fun setDaoOperator(admin: &AdminCap, dao: &mut Dao, operatorAddr: address, expireTime: u64, boostFactor: u64, sclock: &Clock, ctx: &mut TxContext){
+        proposal::setDaoOperator(admin, dao, operatorAddr, expireTime, boostFactor, sclock, ctx);
+    }
+
+    public entry fun setDaoNftBoostConfig<NFT: key + store>(admin: &AdminCap, dao: &mut Dao, boostFactor: u64, threshold: u64, ctx: &mut TxContext){
+        proposal::setDaoNftBoostConfig<NFT>(admin, dao, boostFactor, threshold, ctx);
+    }
+
+    public entry fun setDaoTokenBoostConfig<TOKEN>(admin: &AdminCap, dao: &mut Dao, boostFactor: u64, threshold: u64, ctx: &mut TxContext){
+        proposal::setDaoTokenBoostConfig<TOKEN>(admin, dao, boostFactor, threshold, ctx);
+    }
+
+
+    public entry fun submitProposalByAdmin(_admin: &AdminCap,
                                      name: vector<u8>,
                                      description: vector<u8>,
                                      thread_link: vector<u8>,
@@ -33,8 +50,7 @@ module gize::proposal_entries {
         );
     }
 
-    public fun submitProposalOperator(_admin: &OperatorCap,
-                                      name: vector<u8>,
+    public entry fun submitProposalOperator(name: vector<u8>,
                                       description: vector<u8>,
                                       thread_link: vector<u8>,
                                       type: u8,
@@ -44,51 +60,28 @@ module gize::proposal_entries {
                                       vote_type: u8,
                                       expire: u64,
                                       dao: &mut Dao,
+                                      sclock: &Clock,
                                       ctx: &mut TxContext)
     {
-        proposal::submitProposalByOperator(_admin, name, description, thread_link,
+        proposal::submitProposalByOperator(name, description, thread_link,
             type, anonymous_boost, nft_boost, vote_power_threshold,
-            vote_type, expire, dao, ctx);
+            vote_type, expire, dao, sclock, ctx);
     }
 
-    public fun submitProposal(propCap: &ProposalCap,
-                                        name: vector<u8>,
-                                        description: vector<u8>,
-                                        thread_link: vector<u8>,
-                                        type: u8,
-                                        anonymous_boost: u64,
-                                        nft_boost: u64,
-                                        vote_power_threshold: u64,
-                                        vote_type: u8,
-                                        expire: u64,
-                                        dao: &mut Dao,
-                                        ctx: &mut TxContext) {
-        proposal::submitProposal(propCap, name, description, thread_link,
-            type, anonymous_boost, nft_boost, vote_power_threshold,
-            vote_type, expire, dao, ctx);
-    }
-
-    public fun exchangeNftToCap<NFT: key + store>(nft: &NFT, ctx: &mut TxContext) {
-        proposal::exchangeNftToCap<NFT>(nft, ctx);
-    }
-
-    public fun exchangeTokenToCap<TOKEN: key + store>(token: &Coin<TOKEN>, ctx: &mut TxContext) {
-        proposal::exchangeTokenToCap<TOKEN>(token, ctx);
-    }
-
-    public fun submitProposalByTokenCap(_tokenCap: &TokenBoostCap,
-                                        name: vector<u8>,
-                                        description: vector<u8>,
-                                        thread_link: vector<u8>,
-                                        type: u8,
-                                        anonymous_boost: u64,
-                                        nft_boost: u64,
-                                        vote_power_threshold: u64,
-                                        vote_type: u8,
-                                        expire: u64,
-                                        dao: &mut Dao,
-                                        ctx: &mut TxContext) {
-        proposal::submitProposalByTokenCap(_tokenCap,
+    public entry fun submitProposalByToken<TOKEN>(
+                                     name: vector<u8>,
+                                     description: vector<u8>,
+                                     thread_link: vector<u8>,
+                                     type: u8,
+                                     anonymous_boost: u64,
+                                     nft_boost: u64,
+                                     vote_power_threshold: u64,
+                                     vote_type: u8,
+                                     expire: u64,
+                                     dao: &mut Dao,
+                                     token: &Coin<TOKEN>,
+                                     ctx: &mut TxContext) {
+        proposal::submitProposalByToken<TOKEN>(
             name,
             description,
             thread_link,
@@ -99,6 +92,34 @@ module gize::proposal_entries {
             vote_type,
             expire,
             dao,
+            token,
+            ctx);
+    }
+
+    public entry  fun submitProposalByNfts<NFT: key + store>(name: vector<u8>,
+                                                      description: vector<u8>,
+                                                      thread_link: vector<u8>,
+                                                      type: u8,
+                                                      anonymous_boost: u64,
+                                                      nft_boost: u64,
+                                                      vote_power_threshold: u64,
+                                                      vote_type: u8,
+                                                      expire: u64,
+                                                      dao: &mut Dao,
+                                                      nfts: &NFT, //@fixme can we pass this to entry function from SDK ?
+                                                      ctx: &mut TxContext) {
+        proposal::submitProposalByNfts<NFT>(
+            name,
+            description,
+            thread_link,
+            type,
+            anonymous_boost,
+            nft_boost,
+            vote_power_threshold,
+            vote_type,
+            expire,
+            dao,
+            nfts,
             ctx);
     }
 
