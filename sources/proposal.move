@@ -206,13 +206,13 @@ module gize::proposal {
 
     //just verify, do not secure
     //@todo
-    public fun exchangeNftToCap<NFT: key + store>(nft: &NFT, ctx: &mut TxContext){
+    public fun exchangeNftToCap<NFT: key + store>(_nft: &NFT, _ctx: &mut TxContext){
 
     }
 
     //just verify, do not secure
     //@todo
-    public fun exchangeTokenToCap<TOKEN: key + store>(token: &Coin<TOKEN>, ctx: &mut TxContext){
+    public fun exchangeTokenToCap<TOKEN: key + store>(_token: &Coin<TOKEN>, _ctx: &mut TxContext){
 
     }
 
