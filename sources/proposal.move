@@ -210,8 +210,9 @@ module gize::proposal {
         assert!(expireTime > clock::timestamp_ms(sclock), ERR_INVALID_EXPIRE_TIME);
         let registry = &mut dao.operators;
         if(table::contains(registry, operatorAddr)){
-            table::borrow_mut(registry, operatorAddr).expire = expireTime;
-            table::borrow_mut(registry, operatorAddr).boost_factor = boostFactor;
+            let config = table::borrow_mut(registry, operatorAddr);
+            config.expire = expireTime;
+            config.boost_factor = boostFactor;
         }
         else{
             table::add( registry, operatorAddr, OperatorConfig {
@@ -221,12 +222,13 @@ module gize::proposal {
         }
     }
 
-    public fun setDaoNftBoostConfig<NFT: key + store>(_admin: &AdminCap, dao: &mut Dao, boostFactor: u64, threshold: u64, _ctx: &mut TxContext){
+    public fun setDaoRoleBoostConfigNft<NFT: key + store>(_admin: &AdminCap, dao: &mut Dao, boostFactor: u64, threshold: u64, _ctx: &mut TxContext){
         let registry = &mut dao.nft_boost;
         let type = type_name::get<NFT>();
         if(table::contains(registry, type)){
-            table::borrow_mut<TypeName, BootConfig>(registry, type).threshold = threshold;
-            table::borrow_mut<TypeName, BootConfig>(registry, type).boost_factor = boostFactor;
+            let config = table::borrow_mut<TypeName, BootConfig>(registry, type);
+            config.threshold = threshold;
+            config.boost_factor = boostFactor;
         }
         else{
             table::add( registry, type, BootConfig {
@@ -236,12 +238,13 @@ module gize::proposal {
         }
     }
 
-    public fun setDaoTokenBoostConfig<TOKEN>(_admin: &AdminCap, dao: &mut Dao, boostFactor: u64, threshold: u64, _ctx: &mut TxContext){
+    public fun setDaoRoleBoostConfigToken<TOKEN>(_admin: &AdminCap, dao: &mut Dao, boostFactor: u64, threshold: u64, _ctx: &mut TxContext){
         let registry = &mut dao.token_boost;
         let type = type_name::get<TOKEN>();
         if(table::contains(registry, type)){
-            table::borrow_mut<TypeName, BootConfig>(registry, type).threshold = threshold;
-            table::borrow_mut<TypeName, BootConfig>(registry, type).boost_factor = boostFactor;
+            let config = table::borrow_mut<TypeName, BootConfig>(registry, type);
+            config.threshold = threshold;
+            config.boost_factor = boostFactor;
         }
         else{
             table::add(registry, type, BootConfig {
@@ -308,7 +311,6 @@ module gize::proposal {
         submitProposal_(name, description, thread_link, type, anonymous_boost, nft_boost,  vote_power_threshold, vote_type, expire, dao, ctx);
     }
 
-    //@todo support list of vectors
     public fun submitProposalByNfts<NFT: key + store>(name: vector<u8>,
                                                       description: vector<u8>,
                                                       thread_link: vector<u8>,
@@ -319,14 +321,17 @@ module gize::proposal {
                                                       vote_type: u8,
                                                       expire: u64,
                                                       dao: &mut Dao,
-                                                      _nfts: &NFT, //@fixme can we pass this to entry function from SDK ?
+                                                      nfts: vector<NFT>,
                                         ctx: &mut TxContext) {
         let reg = &dao.token_boost;
         let nftType = type_name::get<NFT>();
         assert!(table::contains(reg, nftType), ERR_ACCESS_DENIED);
         let config = table::borrow(reg, nftType);
-        assert!(config.boost_factor >= config.threshold , ERR_ACCESS_DENIED);
+        assert!(config.boost_factor * vector::length(&nfts) >= config.threshold , ERR_ACCESS_DENIED);
         submitProposal_(name, description, thread_link, type, anonymous_boost, nft_boost,  vote_power_threshold, vote_type, expire, dao, ctx);
+
+        //transfer back to owner
+        transfer_objects_vector(nfts, ctx);
     }
 
     //@todo verify params
@@ -515,7 +520,7 @@ module gize::proposal {
     ///
     /// @todo
     ///
-    public fun voteByNft<NFT: key + store>(propAddr: address, dao: &mut Dao, choices: vector<u8>, choice_values: vector<u64>, _nftProof: &NFT, sclock: &Clock, ctx: &mut TxContext){
+    public fun voteByNfts<NFT: key + store>(propAddr: address, dao: &mut Dao, choices: vector<u8>, choice_values: vector<u64>, nfts: vector<NFT>, sclock: &Clock, ctx: &mut TxContext){
         //validate params
         assert!(table::contains(&dao.proposals, propAddr), ERR_PROPOSAL_NOT_FOUND);
         let now_ms = clock::timestamp_ms(sclock);
@@ -528,8 +533,11 @@ module gize::proposal {
         assert!(vector::length(&choices) == vector::length(&choice_values) && vector::length(&choices) > 0, ERR_INVALID_PARAMS);
 
         //distribute vote
-        let powerAmt = prop.nft_boost;
+        let powerAmt = prop.nft_boost * vector::length(&nfts);
         let userVote = distributeVote(prop, choices, choice_values, powerAmt, ctx);
+
+        //return nfts
+        transfer_objects_vector(nfts, ctx);
 
         //event
         emit(ProposalVotedEvent {
@@ -715,5 +723,15 @@ module gize::proposal {
 
         object::delete(id);
         table::drop(user_votes);
+    }
+
+
+    fun transfer_objects_vector<X: key + store>(objects: vector<X>, ctx: &mut TxContext){
+        let (index, len, senderAddr)  = (0, vector::length(&objects), sender(ctx));
+        while (index < len){
+            public_transfer(vector::pop_back(&mut objects), senderAddr);
+            index = index + 1;
+        };
+        vector::destroy_empty(objects);
     }
 }
