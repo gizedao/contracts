@@ -1,0 +1,13 @@
+[package]
+name = "GizeDao"
+version = "0.0.1"
+
+[dependencies]
+Sui = { git = "https://github.com/MystenLabs/sui", subdir = "crates/sui-framework/packages/sui-framework", rev = "testnet" }
+#W3libs = { git = "https://github.com/seapad-fund/w3libs", rev = "devnet" }
+
+[addresses]
+gize="0x0"
+sui="0x2"
+
+dao_admin="0x6868"
