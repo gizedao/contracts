@@ -1,7 +1,7 @@
 module gize::proposal {
     use sui::object::{UID, id_address};
     use sui::tx_context::{TxContext, sender};
-    use sui::transfer::{public_transfer, public_share_object};
+    use sui::transfer::{public_share_object};
     use sui::object;
     use sui::table::Table;
     use sui::table;
@@ -18,14 +18,9 @@ module gize::proposal {
     use gize::snapshot::DaoSnapshotConfig;
     use gize::snapshot;
     use gize::common::transferVector;
+    use gize::config::AdminCap;
 
     const VERSION: u64 = 1;
-
-    struct PROPOSAL has drop {}
-
-    struct AdminCap has key, store {
-        id: UID
-    }
 
     const ONE_UNDRED_SCALED_10000: u64 = 10000;
     const MAX_CHOICES: u8 = 100;
@@ -96,12 +91,6 @@ module gize::proposal {
     struct Dao has key, store {
         id: UID,
         proposals: Table<address, Proposal>
-    }
-
-    fun init(_witness: PROPOSAL, ctx: &mut TxContext) {
-        let sender = sender(ctx);
-        assert!(sender == @dao_admin, ERR_INVALID_ADMIN);
-        public_transfer(AdminCap { id: object::new(ctx) }, @dao_admin);
     }
 
     struct ProposalSubmittedEvent has copy, drop {

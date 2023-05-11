@@ -3,8 +3,7 @@ module gize::version {
     use sui::tx_context::{TxContext,};
     use sui::object;
     use sui::transfer::share_object;
-
-    use gize::proposal::AdminCap;
+    use gize::config::AdminCap;
 
     const VERSION_INIT: u64 = 1;
 

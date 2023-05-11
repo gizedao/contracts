@@ -1,5 +1,5 @@
 module gize::proposal_entries {
-    use gize::proposal::{AdminCap, Dao};
+    use gize::proposal::Dao;
     use sui::tx_context::TxContext;
     use gize::proposal;
     use sui::coin::Coin;
@@ -7,6 +7,7 @@ module gize::proposal_entries {
     use gize::version::Version;
     use gize::snapshot::DaoSnapshotConfig;
     use gize::snapshot;
+    use gize::config::AdminCap;
 
     ///Create DAO by admin
     public entry fun createDao(admin: &AdminCap,

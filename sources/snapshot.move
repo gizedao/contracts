@@ -17,7 +17,7 @@ module gize::snapshot {
     use gize::common;
     use sui::clock::Clock;
     use sui::clock;
-    use gize::proposal::AdminCap;
+    use gize::config::AdminCap;
 
     const ERR_ASSET_EXIST: u64 = 1001;
     const ERR_INVALID_ADMIN: u64 = 1002;
