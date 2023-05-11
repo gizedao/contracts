@@ -34,7 +34,7 @@ module gize::proposal_entries {
                               sclock: &Clock,
                               version: &mut Version,
                               ctx: &mut TxContext){
-        snapshot::setDaoOperator(admin, operatorAddr, expireTime, boostFactor, daoConfig, sclock, version, ctx);
+        snapshot::addDaoOperator(admin, operatorAddr, expireTime, boostFactor, daoConfig, sclock, version, ctx);
     }
 
 

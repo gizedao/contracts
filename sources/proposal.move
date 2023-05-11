@@ -81,12 +81,6 @@ module gize::proposal {
         expire: u64, //expired timestamp
     }
 
-    struct BoostConfig has drop, store, copy {
-        boost_factor: u64, //multiplied boost factor, for example: anonymous = 100, NFT = 10000, token = 1
-        threshold: u64 //min power allowed
-    }
-
-
     struct Dao has key, store {
         id: UID,
         proposals: Table<address, Proposal>
@@ -211,11 +205,11 @@ module gize::proposal {
         let senderAddr = sender(ctx);
         assert!(snapshot::isOperatorWhitelisted(snapshotReg, senderAddr), ERR_ACCESS_DENIED);
 
-        let (factor, opExpire) = snapshot::getOperatorBoostConfig(snapshotReg, senderAddr);
+        let (factor, opExpire) = snapshot::getOperatorBoostFactors(snapshotReg, senderAddr);
         assert!(opExpire > clock::timestamp_ms(sclock), ERR_OPERATOR_EXPIRED);
 
         let power = factor;
-        assert!( power >= snapshot::getOperatorSubmitThreshold(snapshotReg) , ERR_ACCESS_DENIED);
+        assert!( power >= snapshot::getThresholdOperator(snapshotReg) , ERR_ACCESS_DENIED);
 
         submitProposal(name, description, thread_link, type, vote_power_threshold,
             vote_type, expire, choice_codes, choice_names, choice_thresholds, dao, sclock, ctx);
@@ -241,9 +235,9 @@ module gize::proposal {
 
         assert!(snapshot::isTokenVoteWhitelisted<TOKEN>(snapshotReg), ERR_ACCESS_DENIED);
 
-        let factor = snapshot::getTokenBoostConfig<TOKEN>(snapshotReg);
+        let factor = snapshot::getTokenBoostFactor<TOKEN>(snapshotReg);
         let power = factor * coin::value(token);
-        assert!( power >= snapshot::getSnapshotSubmitThreshold(snapshotReg) , ERR_ACCESS_DENIED);
+        assert!( power >= snapshot::getThresholdSnapshot(snapshotReg) , ERR_ACCESS_DENIED);
         submitProposal(name, description, thread_link, type, vote_power_threshold,
             vote_type, expire, choice_codes, choice_names, choice_thresholds, dao, sclock, ctx);
     }
@@ -268,9 +262,9 @@ module gize::proposal {
 
         assert!(snapshot::isNftVoteWhitelisted<NFT>(snapshotReg), ERR_ACCESS_DENIED);
 
-        let factor= snapshot::getTokenBoostConfig<NFT>(snapshotReg);
+        let factor= snapshot::getTokenBoostFactor<NFT>(snapshotReg);
         let power = factor * vector::length(&nfts);
-        assert!( power >= snapshot::getSnapshotSubmitThreshold(snapshotReg) , ERR_ACCESS_DENIED);
+        assert!( power >= snapshot::getThresholdSnapshot(snapshotReg) , ERR_ACCESS_DENIED);
 
         submitProposal(name, description, thread_link, type, vote_power_threshold,
             vote_type, expire, choice_codes, choice_names, choice_thresholds, dao, sclock, ctx);
@@ -296,7 +290,7 @@ module gize::proposal {
                                           ctx: &mut TxContext) {
         checkVersion(version, VERSION);
         let power = snapshot::getVotingPower(sender(ctx), snapshotReg);
-        assert!( power >= snapshot::getSnapshotSubmitThreshold(snapshotReg) , ERR_ACCESS_DENIED);
+        assert!( power >= snapshot::getThresholdSnapshot(snapshotReg) , ERR_ACCESS_DENIED);
 
         submitProposal(name, description, thread_link, type, vote_power_threshold,
             vote_type, expire, choice_codes, choice_names, choice_thresholds, dao, sclock, ctx);
@@ -343,8 +337,8 @@ module gize::proposal {
 
         while (!vector::is_empty(&choice_codes)){
             addProposalChoice(vector::pop_back(&mut choice_codes),
-                vector::pop_back(&mut choice_names),
-                vector::pop_back(&mut choice_thresholds),
+                        vector::pop_back(&mut choice_names),
+                    vector::pop_back(&mut choice_thresholds),
             &mut prop);
         };
 
@@ -452,14 +446,14 @@ module gize::proposal {
     ///
     /// Vote using power staked by snapshot
     ///
-    public fun voteBySnapshotPower(propAddr: address,
-                                   dao: &mut Dao,
-                                   choices: vector<u8>,
-                                   choice_values: vector<u64>,
-                                   snapshotReg: &DaoSnapshotConfig,
-                                   sclock: &Clock,
-                                   version: &mut Version,
-                                   ctx: &mut TxContext){
+    public fun voteByStakedPower(propAddr: address,
+                                 dao: &mut Dao,
+                                 choices: vector<u8>,
+                                 choice_values: vector<u64>,
+                                 snapshotReg: &DaoSnapshotConfig,
+                                 sclock: &Clock,
+                                 version: &mut Version,
+                                 ctx: &mut TxContext){
         checkVersion(version, VERSION);
 
         //validate params
@@ -509,7 +503,7 @@ module gize::proposal {
         assert!(vector::length(&choices) == vector::length(&choice_values) && vector::length(&choices) > 0, ERR_INVALID_PARAMS);
 
         //distribute vote
-        let factor = snapshot::getTokenBoostConfig<TOKEN>(snapshotReg);
+        let factor = snapshot::getTokenBoostFactor<TOKEN>(snapshotReg);
         let power = factor * coin::value(coins);
         let userVote = distributeVote(prop, choices, choice_values, power, ctx);
 
@@ -547,7 +541,7 @@ module gize::proposal {
         assert!(vector::length(&choices) == vector::length(&choice_values) && vector::length(&choices) > 0, ERR_INVALID_PARAMS);
 
         //distribute vote
-        let factor = snapshot::getNftBoostConfig<NFT>(snapshotReg);
+        let factor = snapshot::getNftBoostFactor<NFT>(snapshotReg);
         let power = factor * vector::length(&nfts);
         let userVote = distributeVote(prop, choices, choice_values, power, ctx);
 
@@ -563,6 +557,7 @@ module gize::proposal {
 
     ///
     /// Directly vote by anounymous
+    /// @todo consider charge fee for anonymous
     ///
     public fun voteByAnonymous(propAddr: address,
                                dao: &mut Dao,
@@ -581,7 +576,7 @@ module gize::proposal {
         assert!(prop.state == PROP_STATE_PENDING &&(now_ms < prop.expire) && prop.type == PROPOSAL_TYPE_ONCHAIN, ERR_INVALID_STATE);
 
         //distribute vote
-        let power = snapshot::getAnonymousBoostConfig(snapshotReg);
+        let power = snapshot::getAnonymousBoostFactor(snapshotReg);
         let userVote = distributeVote(prop, choices, choice_values, power, ctx);
 
         //event

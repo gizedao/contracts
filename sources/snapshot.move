@@ -1,4 +1,7 @@
 module gize::snapshot {
+    ///
+    /// @fixme make sure that no asset staked/unstaked on this while updating config
+    ///
     use sui::tx_context::{TxContext, sender};
     use std::vector;
     use sui::object::{UID};
@@ -22,6 +25,8 @@ module gize::snapshot {
     const ERR_ASSET_EXIST: u64 = 1001;
     const ERR_INVALID_ADMIN: u64 = 1002;
     const ERR_BAD_PARAMS: u64 = 1003;
+    const ERR_SNAPSHOT_RUNNING: u64 = 1004;
+
 
     const VERSION: u64 = 1;
 
@@ -33,25 +38,25 @@ module gize::snapshot {
         //dynamic filed of TypeName > vector<AssetType>
     }
 
-    struct PowerConfig has drop, store, copy {
-        power_factor: u64
+    struct BoostConfig has drop, store, copy {
+        boost_factor: u64   //power factor, for example: NFT size * power_factor
     }
 
     struct OperatorConfig has drop, store, copy {
         expire: u64, //expire timestamp
-        boost_factor: u64 //power of each operator
+        boost_factor: u64 //power factor per operator
     }
 
     struct DaoSnapshotConfig has key, store {
         id: UID,
-        anonymous_boost: PowerConfig,   //anonymous boost
-        nft_boost: Table<TypeName, PowerConfig>,   //nft whitelist you can stake
-        token_boost: Table<TypeName, PowerConfig>,  //token whitelist you can stake
+        anonymous_boost: BoostConfig,   //anonymous boost
+        nft_boost: Table<TypeName, BoostConfig>,   //nft whitelist you can stake
+        token_boost: Table<TypeName, BoostConfig>,  //token whitelist you can stake
         operators: Table<address, OperatorConfig>,  //operator roles
         powers: Table<address, u64>, //user power
         asset_snapshot: Table<address, AssetSnapshot>, //snapshot of asset
-        threshold_operator: u64,
-        threshold_snapshot: u64,
+        threshold_operator: u64,    //minimum power allowed for operator to make proposal
+        threshold_snapshot: u64,    //minimum power allowed for operator to make proposal
     }
 
     fun init(_witness: SNAPSHOT, ctx: &mut TxContext) {
@@ -60,8 +65,8 @@ module gize::snapshot {
 
         share_object(DaoSnapshotConfig {
             id: object::new(ctx),
-            anonymous_boost: PowerConfig{
-                power_factor: 0,
+            anonymous_boost: BoostConfig {
+                boost_factor: 0,
             },
             operators: table::new(ctx),
             nft_boost: table::new(ctx),
@@ -85,7 +90,7 @@ module gize::snapshot {
         daoConfig.threshold_snapshot = snapshotThreshold;
     }
 
-    public fun setDaoOperator(_admin: &AdminCap,
+    public fun addDaoOperator(_admin: &AdminCap,
                               operatorAddr: address,
                               expireTime: u64,
                               boostFactor: u64,
@@ -94,6 +99,7 @@ module gize::snapshot {
                               version: &mut Version,
                               _ctx: &mut TxContext){
         checkVersion(version, VERSION);
+        assert!(table::length(&daoConfig.asset_snapshot) == 0, ERR_SNAPSHOT_RUNNING);
 
         assert!(expireTime > clock::timestamp_ms(sclock), ERR_BAD_PARAMS);
         let daoOps = &mut daoConfig.operators;
@@ -117,43 +123,48 @@ module gize::snapshot {
                                  version: &mut Version,
                                  _ctx: &mut TxContext){
         checkVersion(version, VERSION);
-        configReg.anonymous_boost = PowerConfig {
-            power_factor,
+        assert!(table::length(&configReg.asset_snapshot) == 0, ERR_SNAPSHOT_RUNNING);
+
+        assert!(table::length(&configReg.asset_snapshot) == 0, ERR_SNAPSHOT_RUNNING);
+        configReg.anonymous_boost = BoostConfig {
+            boost_factor: power_factor,
         };
     }
 
-    ///@todo make sure that no asset staked on this config while updating config
     public fun setNftBoost<NFT: key + store>(_adminCap: &AdminCap,
                                              power_factor: u64,
                                              configReg: &mut DaoSnapshotConfig,
                                              version: &mut Version,
                                              _ctx: &mut TxContext){
         checkVersion(version, VERSION);
+        assert!(table::length(&configReg.asset_snapshot) == 0, ERR_SNAPSHOT_RUNNING);
+
         let typeName = type_name::get<NFT>();
         if(table::contains(&configReg.nft_boost, typeName)){
             table::remove(&mut configReg.nft_boost, typeName);
         };
 
-        table::add(&mut configReg.nft_boost, typeName, PowerConfig {
-            power_factor,
+        table::add(&mut configReg.nft_boost, typeName, BoostConfig {
+            boost_factor: power_factor,
         });
     }
 
-    ///@todo make sure that no asset staked on this config while updating config
     public fun setTokenBoost<TOKEN>(_adminCap: &AdminCap,
                                     power_factor: u64,
                                     configReg: &mut DaoSnapshotConfig,
                                     version: &mut Version,
                                     _ctx    : &mut TxContext){
         checkVersion(version, VERSION);
+        //@todo more gracefull checking ?
+        assert!(table::length(&configReg.asset_snapshot) == 0, ERR_SNAPSHOT_RUNNING);
 
         let typeName = type_name::get<TOKEN>();
         if(table::contains(&configReg.token_boost, typeName)){
             table::remove(&mut configReg.token_boost, typeName);
         };
 
-        table::add(&mut configReg.token_boost, typeName, PowerConfig {
-            power_factor,
+        table::add(&mut configReg.token_boost, typeName, BoostConfig {
+            boost_factor: power_factor,
         });
     }
 
@@ -170,7 +181,7 @@ module gize::snapshot {
         //validate
         assert!(nftSize > 0
             && table::contains(&snapshotReg.nft_boost, typeName)
-            && table::borrow(&snapshotReg.nft_boost, typeName).power_factor > 0,
+            && table::borrow(&snapshotReg.nft_boost, typeName).boost_factor > 0,
             ERR_BAD_PARAMS);
         let senderAddr = sender(ctx);
 
@@ -194,10 +205,10 @@ module gize::snapshot {
 
         //update power
         let powerConfig = table::borrow(&snapshotReg.nft_boost, typeName);
-        common::increaseTable(&mut snapshotReg.powers, senderAddr, nftSize * powerConfig.power_factor);
+        common::increaseTable(&mut snapshotReg.powers, senderAddr, nftSize * powerConfig.boost_factor);
     }
 
-    ///unstake asset, power reduced
+    /// Unstake asset, power reduced
     public fun unstakeSnapshotNft<NFT: key + store>(snapshotReg: &mut DaoSnapshotConfig,
                                                     version: &mut Version,
                                                     ctx: &mut TxContext){
@@ -208,7 +219,7 @@ module gize::snapshot {
         assert!(table::contains(&snapshotReg.asset_snapshot, senderAddr), ERR_BAD_PARAMS);
         let snapshot = table::borrow_mut(&mut snapshotReg.asset_snapshot, senderAddr);
         let typeName = type_name::get<NFT>();
-        assert!(dynamic_field::exists_(&snapshot.id,typeName), ERR_BAD_PARAMS);
+        assert!(dynamic_field::exists_(&snapshot.id, typeName), ERR_BAD_PARAMS);
 
         //withdraw all asset branch
         let assetBranch = dynamic_field::remove<TypeName, vector<NFT>>(&mut snapshot.id, typeName);
@@ -218,7 +229,7 @@ module gize::snapshot {
         //reduce power
         snapshot.total_object = snapshot.total_object - nftSize;
         let powerConfig = table::borrow(&snapshotReg.nft_boost, typeName);
-        common::decreaseTable(&mut snapshotReg.powers, senderAddr, nftSize* powerConfig.power_factor);
+        common::decreaseTable(&mut snapshotReg.powers, senderAddr, nftSize* powerConfig.boost_factor);
 
         if(snapshot.total_object == 0){
             destroyAssetSnapshot(table::remove(&mut snapshotReg.asset_snapshot, senderAddr));
@@ -239,7 +250,7 @@ module gize::snapshot {
         //validate
         assert!(tokenSize > 0
             && table::contains(&snapshotReg.token_boost, typeName)
-            && table::borrow(&snapshotReg.token_boost, typeName).power_factor > 0,
+            && table::borrow(&snapshotReg.token_boost, typeName).boost_factor > 0,
             ERR_BAD_PARAMS);
 
         let joinedToken = coin::zero<TOKEN>(ctx);
@@ -269,7 +280,7 @@ module gize::snapshot {
 
         //update power
         let powerConfig = table::borrow(&snapshotReg.token_boost, typeName);
-        common::increaseTable(&mut snapshotReg.powers, senderAddr, tokenVal * powerConfig.power_factor);
+        common::increaseTable(&mut snapshotReg.powers, senderAddr, tokenVal * powerConfig.boost_factor);
     }
 
     ///unstake asset, power reduced
@@ -295,7 +306,7 @@ module gize::snapshot {
         //reduce power
         snapshot.total_object = snapshot.total_object - tokenSize;
         let powerConfig = table::borrow(&snapshotReg.nft_boost, typeName);
-        common::decreaseTable(&mut snapshotReg.powers, senderAddr, tokenVal * powerConfig.power_factor);
+        common::decreaseTable(&mut snapshotReg.powers, senderAddr, tokenVal * powerConfig.boost_factor);
 
         if(snapshot.total_object == 0){
             destroyAssetSnapshot(table::remove(&mut snapshotReg.asset_snapshot, senderAddr));
@@ -321,36 +332,36 @@ module gize::snapshot {
         table::contains(&snapshotReg.nft_boost, type_name::get<TOKEN>())
     }
 
-    public fun getTokenBoostConfig<TOKEN>(snapshotReg: &DaoSnapshotConfig): u64{
+    public fun getTokenBoostFactor<TOKEN>(snapshotReg: &DaoSnapshotConfig): u64{
         let config = table::borrow(&snapshotReg.token_boost, type_name::get<TOKEN>());
-        config.power_factor
+        config.boost_factor
     }
 
-    public fun getSnapshotSubmitThreshold(snapshotReg: &DaoSnapshotConfig): u64{
+    public fun getThresholdSnapshot(snapshotReg: &DaoSnapshotConfig): u64{
        snapshotReg.threshold_snapshot
     }
 
-    public fun getOperatorSubmitThreshold(snapshotReg: &DaoSnapshotConfig): u64{
+    public fun getThresholdOperator(snapshotReg: &DaoSnapshotConfig): u64{
         snapshotReg.threshold_operator
     }
 
-    public fun getNftBoostConfig<NFT>(snapshotReg: &DaoSnapshotConfig): u64 {
+    public fun getNftBoostFactor<NFT>(snapshotReg: &DaoSnapshotConfig): u64 {
         let config = table::borrow(&snapshotReg.nft_boost, type_name::get<NFT>());
-        config.power_factor
+        config.boost_factor
     }
 
     public fun isOperatorWhitelisted(snapshotReg: &DaoSnapshotConfig, operatorAddr: address): bool{
         table::contains(&snapshotReg.operators, operatorAddr)
     }
 
-    public fun getOperatorBoostConfig(snapshotReg: &DaoSnapshotConfig, operatorAddr: address): (u64, u64){
+    public fun getOperatorBoostFactors(snapshotReg: &DaoSnapshotConfig, operatorAddr: address): (u64, u64){
         let config = table::borrow(&snapshotReg.operators, operatorAddr);
         (config.boost_factor, config.expire)
     }
 
-    public fun getAnonymousBoostConfig(snapshotReg: &DaoSnapshotConfig): u64 {
+    public fun getAnonymousBoostFactor(snapshotReg: &DaoSnapshotConfig): u64 {
         let config = snapshotReg.anonymous_boost;
-        config.power_factor
+        config.boost_factor
     }
 
     //@fixme review remove dynamic object

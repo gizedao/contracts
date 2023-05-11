@@ -7,10 +7,8 @@ module gize::common {
     use sui::table;
 
     public fun transferVector<T: key + store>(assets: vector<T>, to: address){
-        let index = vector::length(&assets);
-        while (index > 0){
+        while (!vector::is_empty(&assets)){
             public_transfer( vector::pop_back(&mut assets), to);
-            index = index - 1;
         };
         vector::destroy_empty(assets);
     }
