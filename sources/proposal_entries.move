@@ -55,7 +55,7 @@ module gize::proposal_entries {
                                                    configReg: &mut DaoSnapshotConfig,
                                                    version: &mut Version,
                                                    ctx: &mut TxContext){
-        snapshot::addPowerConfigNft<NFT>(adminCap,
+        snapshot::setNftBoost<NFT>(adminCap,
                                             power_factor,
                                             configReg,
                                             version,
@@ -68,7 +68,7 @@ module gize::proposal_entries {
                                           configReg: &mut DaoSnapshotConfig,
                                           version: &mut Version,
                                           ctx: &mut TxContext){
-        snapshot::addPowerConfigToken<TOKEN>(adminCap,
+        snapshot::setTokenBoost<TOKEN>(adminCap,
                                                 power_factor,
                                                 configReg,
                                                 version,
@@ -94,6 +94,9 @@ module gize::proposal_entries {
                                            vote_type: u8,
                                            token_condition_threshold: u64,
                                            expire: u64,
+                                           choice_codes: vector<u8>,
+                                           choice_names: vector<vector<u8>>,
+                                           choice_thresholds: vector<u64>,
                                            dao: &mut Dao,
                                            sclock: &Clock,
                                            version: &mut Version,
@@ -107,6 +110,9 @@ module gize::proposal_entries {
             vote_type,
             token_condition_threshold,
             expire,
+            choice_codes,
+            choice_names,
+            choice_thresholds,
             dao,
             sclock,
             version,
@@ -141,8 +147,11 @@ module gize::proposal_entries {
                                               vote_power_threshold: u64,
                                               vote_type: u8,
                                               expire: u64,
+                                              choice_codes: vector<u8>,
+                                              choice_names: vector<vector<u8>>,
+                                              choice_thresholds: vector<u64>,
                                               dao: &mut Dao,
-                                                snapshotReg: &DaoSnapshotConfig,
+                                              snapshotReg: &DaoSnapshotConfig,
                                               sclock: &Clock,
                                             version: &mut Version,
                                             ctx: &mut TxContext)
@@ -154,6 +163,9 @@ module gize::proposal_entries {
             vote_power_threshold,
             vote_type,
             expire,
+            choice_codes,
+            choice_names,
+            choice_thresholds,
             dao,
             snapshotReg,
             sclock,
@@ -161,7 +173,7 @@ module gize::proposal_entries {
             ctx);
     }
 
-    ///Boosted user using Token to make new proposal
+    ///Sumbit proposal directly using Coin list
     public entry fun submitProposalByToken<TOKEN>(
                                      name: vector<u8>,
                                      description: vector<u8>,
@@ -170,6 +182,9 @@ module gize::proposal_entries {
                                      vote_power_threshold: u64,
                                      vote_type: u8,
                                      expire: u64,
+                                     choice_codes: vector<u8>,
+                                     choice_names: vector<vector<u8>>,
+                                     choice_thresholds: vector<u64>,
                                      dao: &mut Dao,
                                      token: &Coin<TOKEN>,
                                      snapshotReg: &DaoSnapshotConfig,
@@ -184,6 +199,9 @@ module gize::proposal_entries {
             vote_power_threshold,
             vote_type,
             expire,
+            choice_codes,
+            choice_names,
+            choice_thresholds,
             dao,
             token,
             snapshotReg,
@@ -192,7 +210,7 @@ module gize::proposal_entries {
             ctx);
     }
 
-    ///Boosted user using NFT collection to make new proposal
+    ///Sumbit proposal directly using NFT collections
     public entry  fun submitProposalByNfts<NFT: key + store>(name: vector<u8>,
                                                                 description: vector<u8>,
                                                                 thread_link: vector<u8>,
@@ -200,6 +218,9 @@ module gize::proposal_entries {
                                                                 vote_power_threshold: u64,
                                                                 vote_type: u8,
                                                                 expire: u64,
+                                                                 choice_codes: vector<u8>,
+                                                                 choice_names: vector<vector<u8>>,
+                                                                 choice_thresholds: vector<u64>,
                                                                 dao: &mut Dao,
                                                                 nfts: vector<NFT>,
                                                                  snapshotReg: &DaoSnapshotConfig,
@@ -214,6 +235,9 @@ module gize::proposal_entries {
             vote_power_threshold,
             vote_type,
             expire,
+            choice_codes,
+            choice_names,
+            choice_thresholds,
             dao,
             sclock,
             nfts,
@@ -222,13 +246,17 @@ module gize::proposal_entries {
             ctx);
     }
 
-    public fun submitProposalByPower<NFT: key + store>(name: vector<u8>,
+    ///Sumbit proposal using staked power
+    public entry fun submitProposalByPower(name: vector<u8>,
                                                        description: vector<u8>,
                                                        thread_link: vector<u8>,
                                                        type: u8,
                                                        vote_power_threshold: u64,
                                                        vote_type: u8,
                                                        expire: u64,
+                                                       choice_codes: vector<u8>,
+                                                       choice_names: vector<vector<u8>>,
+                                                       choice_thresholds: vector<u64>,
                                                        dao: &mut Dao,
                                                        sclock: &Clock,
                                                        snapshotReg: &DaoSnapshotConfig,
@@ -241,12 +269,25 @@ module gize::proposal_entries {
             vote_power_threshold,
             vote_type,
             expire,
+            choice_codes,
+            choice_names,
+            choice_thresholds,
             dao,
             sclock,
             snapshotReg,
             version,
             ctx)
     }
+
+    /// Delist when proposal in init!
+    public entry fun delistProposal(proposalId: address,
+                                    dao: &mut Dao,
+                                    version: &mut Version,
+                                    ctx: &mut TxContext){
+        proposal::delistProposal(proposalId, dao, version, ctx);
+    }
+
+
     ///Owner officially start proposal
     public entry fun listProposal(proposalId: address,
                                   dao: &mut Dao,
@@ -254,15 +295,6 @@ module gize::proposal_entries {
                                   version: &mut Version,
                                   ctx: &mut TxContext){
         proposal::listProposal(proposalId, dao, sclock, version, ctx);
-
-    }
-
-    public entry fun delistProposal(proposalId: address,
-                                    dao: &mut Dao,
-                                    version: &mut Version,
-                                    ctx: &mut TxContext){
-        proposal::delistProposal(proposalId, dao, version, ctx);
-
     }
 
     ///User vote using token power

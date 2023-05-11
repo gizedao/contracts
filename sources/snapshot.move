@@ -1,7 +1,7 @@
 module gize::snapshot {
     use sui::tx_context::{TxContext, sender};
     use std::vector;
-    use sui::object::{UID, id};
+    use sui::object::{UID};
     use sui::transfer::{share_object};
     use std::type_name::TypeName;
     use std::type_name;
@@ -44,14 +44,14 @@ module gize::snapshot {
 
     struct DaoSnapshotConfig has key, store {
         id: UID,
-        anonymous_boost: PowerConfig,
-        operators: Table<address, OperatorConfig>,  //operator roles
+        anonymous_boost: PowerConfig,   //anonymous boost
         nft_boost: Table<TypeName, PowerConfig>,   //nft whitelist you can stake
         token_boost: Table<TypeName, PowerConfig>,  //token whitelist you can stake
+        operators: Table<address, OperatorConfig>,  //operator roles
         powers: Table<address, u64>, //user power
         asset_snapshot: Table<address, AssetSnapshot>, //snapshot of asset
-        submit_threshold_operator: u64,
-        submit_threshold_snapshot: u64,
+        threshold_operator: u64,
+        threshold_snapshot: u64,
     }
 
     fun init(_witness: SNAPSHOT, ctx: &mut TxContext) {
@@ -68,8 +68,8 @@ module gize::snapshot {
             token_boost: table::new(ctx),
             powers: table::new(ctx),
             asset_snapshot: table::new(ctx),
-            submit_threshold_operator: 0,
-            submit_threshold_snapshot: 0,
+            threshold_operator: 0,
+            threshold_snapshot: 0,
         })
     }
 
@@ -81,8 +81,8 @@ module gize::snapshot {
                                 _ctx: &mut TxContext){
         checkVersion(version, VERSION);
 
-        daoConfig.submit_threshold_operator = operatorThreshold;
-        daoConfig.submit_threshold_snapshot = snapshotThreshold;
+        daoConfig.threshold_operator = operatorThreshold;
+        daoConfig.threshold_snapshot = snapshotThreshold;
     }
 
     public fun setDaoOperator(_admin: &AdminCap,
@@ -115,7 +115,7 @@ module gize::snapshot {
                                  power_factor: u64,
                                  configReg: &mut DaoSnapshotConfig,
                                  version: &mut Version,
-                                 ctx: &mut TxContext){
+                                 _ctx: &mut TxContext){
         checkVersion(version, VERSION);
         configReg.anonymous_boost = PowerConfig {
             power_factor,
@@ -123,11 +123,11 @@ module gize::snapshot {
     }
 
     ///@todo make sure that no asset staked on this config while updating config
-    public fun addPowerConfigNft<NFT: key + store>(_adminCap: &AdminCap,
-                                                   power_factor: u64,
-                                                   configReg: &mut DaoSnapshotConfig,
-                                                   version: &mut Version,
-                                                   ctx: &mut TxContext){
+    public fun setNftBoost<NFT: key + store>(_adminCap: &AdminCap,
+                                             power_factor: u64,
+                                             configReg: &mut DaoSnapshotConfig,
+                                             version: &mut Version,
+                                             _ctx: &mut TxContext){
         checkVersion(version, VERSION);
         let typeName = type_name::get<NFT>();
         if(table::contains(&configReg.nft_boost, typeName)){
@@ -140,11 +140,11 @@ module gize::snapshot {
     }
 
     ///@todo make sure that no asset staked on this config while updating config
-    public fun addPowerConfigToken<TOKEN>(_adminCap: &AdminCap,
-                                          power_factor: u64,
-                                          configReg: &mut DaoSnapshotConfig,
-                                          version: &mut Version,
-                                          ctx: &mut TxContext){
+    public fun setTokenBoost<TOKEN>(_adminCap: &AdminCap,
+                                    power_factor: u64,
+                                    configReg: &mut DaoSnapshotConfig,
+                                    version: &mut Version,
+                                    _ctx    : &mut TxContext){
         checkVersion(version, VERSION);
 
         let typeName = type_name::get<TOKEN>();
@@ -224,16 +224,6 @@ module gize::snapshot {
             destroyAssetSnapshot(table::remove(&mut snapshotReg.asset_snapshot, senderAddr));
             table::remove(&mut snapshotReg.powers, senderAddr);
         };
-    }
-
-    //@fixme review remove dynamic object
-    fun destroyAssetSnapshot(snap: AssetSnapshot){
-        let AssetSnapshot{
-            id,
-            total_object: _total_object,
-        } = snap;
-
-        object::delete(id);
     }
 
     ///stake asset to get more power
@@ -337,11 +327,11 @@ module gize::snapshot {
     }
 
     public fun getSnapshotSubmitThreshold(snapshotReg: &DaoSnapshotConfig): u64{
-       snapshotReg.submit_threshold_snapshot
+       snapshotReg.threshold_snapshot
     }
 
     public fun getOperatorSubmitThreshold(snapshotReg: &DaoSnapshotConfig): u64{
-        snapshotReg.submit_threshold_operator
+        snapshotReg.threshold_operator
     }
 
     public fun getNftBoostConfig<NFT>(snapshotReg: &DaoSnapshotConfig): u64 {
@@ -361,5 +351,15 @@ module gize::snapshot {
     public fun getAnonymousBoostConfig(snapshotReg: &DaoSnapshotConfig): u64 {
         let config = snapshotReg.anonymous_boost;
         config.power_factor
+    }
+
+    //@fixme review remove dynamic object
+    fun destroyAssetSnapshot(snap: AssetSnapshot){
+        let AssetSnapshot{
+            id,
+            total_object: _total_object,
+        } = snap;
+
+        object::delete(id);
     }
 }
