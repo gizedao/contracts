@@ -1,12 +1,10 @@
-module gize::entries {
-    use gize::proposal::Dao;
+module gize::proposal_entries {
+    use gize::proposal::{Dao, Proposal};
     use sui::tx_context::TxContext;
     use gize::proposal;
     use sui::coin::Coin;
     use sui::clock::Clock;
     use gize::version::Version;
-    use gize::snapshot::DaoSnapshotConfig;
-    use gize::snapshot;
     use gize::config::AdminCap;
 
     ///Create DAO by admin
@@ -19,10 +17,9 @@ module gize::entries {
     public entry fun setThreshold(adminCap: &AdminCap,
                                   operatorThreshold: u64,
                                   snapshotThreshold: u64,
-                                  daoConfig: &mut DaoSnapshotConfig,
-                                  version: &mut Version,
-                                  _ctx: &mut TxContext){
-        snapshot::setThreshold(adminCap, operatorThreshold, snapshotThreshold, daoConfig, version, _ctx);
+                                  dao: &mut Dao,
+                                  version: &mut Version){
+        proposal::setThreshold(adminCap, operatorThreshold, snapshotThreshold, dao, version);
     }
 
     ///Add new DAO operator by admin
@@ -30,77 +27,70 @@ module gize::entries {
                                     operatorAddr: address,
                                     expireTime: u64,
                                     boostFactor: u64,
-                                    daoConfig: &mut DaoSnapshotConfig,
+                                    dao: &mut Dao,
                                     sclock: &Clock,
-                                    version: &mut Version,
-                                    ctx: &mut TxContext){
-        snapshot::addDaoOperator(adminCap, operatorAddr, expireTime, boostFactor, daoConfig, sclock, version, ctx);
+                                    version: &mut Version){
+        proposal::addDaoOperator(adminCap, operatorAddr, expireTime, boostFactor, dao, sclock, version);
     }
 
     public entry fun setAnonymousBoost(adminCap: &AdminCap,
                                        powerFactor: u64,
-                                       configReg: &mut DaoSnapshotConfig,
-                                       version: &mut Version,
-                                       ctx: &mut TxContext){
-        snapshot::setAnonymousBoost(adminCap,
+                                       dao: &mut Dao,
+                                       version: &mut Version){
+        proposal::setAnonymousBoost(adminCap,
                                     powerFactor,
-                                    configReg,
-                                    version,
-                                    ctx);
+                                    dao,
+                                    version);
     }
 
     public entry fun setNftBoost<NFT: key + store>(adminCap: &AdminCap,
                                                    powerFactor: u64,
-                                                   configReg: &mut DaoSnapshotConfig,
-                                                   version: &mut Version,
-                                                   ctx: &mut TxContext){
-        snapshot::setNftBoost<NFT>(adminCap,
-            powerFactor,
-                                            configReg,
-                                            version,
-                                            ctx)
+                                                   dao: &mut Dao,
+                                                   version: &mut Version){
+        proposal::setNftBoost<NFT>(adminCap,
+                                    powerFactor,
+                                    dao,
+                                    version)
     }
 
 
     public entry fun setTokenBoost<TOKEN>(adminCap: &AdminCap,
                                           powerFactor: u64,
-                                          configReg: &mut DaoSnapshotConfig,
-                                          version: &mut Version,
-                                          ctx: &mut TxContext){
-        snapshot::setTokenBoost<TOKEN>(adminCap,
-            powerFactor,
-                                                configReg,
-                                                version,
-                                                ctx)
+                                          dao: &mut Dao,
+                                          version: &mut Version){
+        proposal::setTokenBoost<TOKEN>(adminCap,
+                                        powerFactor,
+                                        dao,
+                                        version)
     }
 
     public entry fun snapshotNft<NFT: key + store>(nfts: vector<NFT>,
-                                                   snapshotReg: &mut DaoSnapshotConfig,
+                                                   dao: &mut Dao,
                                                    version: &mut Version,
                                                    ctx: &mut TxContext){
-        snapshot::snapshotNft<NFT>(nfts,
-                                        snapshotReg,
-                                        version,
-                                        ctx);
+        proposal::snapshotNft<NFT>(nfts,
+                                    dao,
+                                    version,
+                                    ctx);
     }
 
-    public entry fun unstakeSnapshotNft<NFT: key + store>(snapshotReg: &mut DaoSnapshotConfig,
-                                                    version: &mut Version,
-                                                    ctx: &mut TxContext){
-        snapshot::unsnapshotNft<NFT>(snapshotReg, version, ctx);
+    public entry fun unstakeSnapshotNft<NFT: key + store>(dao: &mut Dao,
+                                                          version: &mut Version,
+                                                          ctx: &mut TxContext){
+        proposal::unsnapshotNft<NFT>(dao, version, ctx);
     }
 
     public entry fun stakeSnapshotToken<TOKEN>(tokens: vector<Coin<TOKEN>>,
-                                         snapshotReg: &mut DaoSnapshotConfig,
-                                         version: &mut Version,
-                                         ctx: &mut TxContext){
-        snapshot::snapshotToken<TOKEN>(tokens, snapshotReg, version, ctx);
+                                               dao: &mut Dao,
+                                               version: &mut Version,
+                                               ctx: &mut TxContext){
+        proposal::snapshotToken<TOKEN>(tokens, dao, version, ctx);
     }
 
-    public entry fun unstakeSnapshotToken<TOKEN>(snapshotReg: &mut DaoSnapshotConfig,
-                                           version: &mut Version,
-                                           ctx: &mut TxContext){
-        snapshot::unsnapshotToken<TOKEN>(snapshotReg, version, ctx);
+    public entry fun unstakeSnapshotToken<TOKEN>(dao: &mut Dao,
+                                                 version: &mut Version,
+                                                 ctx: &mut TxContext){
+        proposal::unsnapshotToken<TOKEN>(dao, version, ctx);
     }
 
     ///Operator make new proposal
@@ -115,9 +105,8 @@ module gize::entries {
                                             choiceNames: vector<vector<u8>>,
                                             choiceThresholds: vector<u64>,
                                             dao: &mut Dao,
-                                            snapshotReg: &DaoSnapshotConfig,
-                                            sclock: &Clock,
                                             version: &mut Version,
+                                            sclock: &Clock,
                                             ctx: &mut TxContext)
     {
         proposal::submitProposalByOperator(name,
@@ -131,7 +120,6 @@ module gize::entries {
             choiceNames,
             choiceThresholds,
             dao,
-            snapshotReg,
             sclock,
             version,
             ctx);
@@ -151,9 +139,8 @@ module gize::entries {
         choiceThresholds: vector<u64>,
         dao: &mut Dao,
         token: &Coin<TOKEN>,
-        snapshotReg: &DaoSnapshotConfig,
-        sclock: &Clock,
         version: &mut Version,
+        sclock: &Clock,
         ctx: &mut TxContext) {
         proposal::submitProposalByToken<TOKEN>(
             name,
@@ -168,7 +155,6 @@ module gize::entries {
             choiceThresholds,
             dao,
             token,
-            snapshotReg,
             sclock,
             version,
             ctx);
@@ -187,9 +173,8 @@ module gize::entries {
                                                              choiceThresholds: vector<u64>,
                                                              dao: &mut Dao,
                                                              nfts: vector<NFT>,
-                                                             snapshotReg: &DaoSnapshotConfig,
-                                                             sclock: &Clock,
                                                              version: &mut Version,
+                                                             sclock: &Clock,
                                                              ctx: &mut TxContext) {
         proposal::submitProposalByNfts<NFT>(
             name,
@@ -205,7 +190,6 @@ module gize::entries {
             dao,
             sclock,
             nfts,
-            snapshotReg,
             version,
             ctx);
     }
@@ -222,9 +206,8 @@ module gize::entries {
                                            choiceNames: vector<vector<u8>>,
                                            choiceThresholds: vector<u64>,
                                            dao: &mut Dao,
-                                           sclock: &Clock,
-                                           snapshotReg: &DaoSnapshotConfig,
                                            version: &mut Version,
+                                           sclock: &Clock,
                                            ctx: &mut TxContext) {
         proposal::submitProposalByPower(name,
             description,
@@ -238,48 +221,44 @@ module gize::entries {
             choiceThresholds,
             dao,
             sclock,
-            snapshotReg,
             version,
             ctx)
     }
 
     /// Delist when proposal in init!
-    public entry fun delistProposal(proposalId: address,
+    public entry fun delistProposal(prop: Proposal,
                                     dao: &mut Dao,
                                     version: &mut Version,
                                     ctx: &mut TxContext){
-        proposal::delistProposal(proposalId, dao, version, ctx);
+        proposal::delistProposal(prop, dao, version, ctx);
     }
 
 
     ///Owner officially start proposal
-    public entry fun listProposal(proposalId: address,
-                                  dao: &mut Dao,
-                                  sclock: &Clock,
+    public entry fun listProposal(prop: &mut Proposal,
                                   version: &mut Version,
+                                  sclock: &Clock,
                                   ctx: &mut TxContext){
-        proposal::listProposal(proposalId, dao, sclock, version, ctx);
+        proposal::listProposal(prop, sclock, version, ctx);
     }
 
 
     ///VOTING
     ///
-    public fun voteBySnapshotPower(propAddr: address,
+    public fun voteBySnapshotPower(prop: &mut Proposal,
                                    dao: &mut Dao,
                                    choices: vector<u8>,
                                    choiceValues: vector<u64>,
                                    powerUsed: u64,
-                                   snapshotReg: &DaoSnapshotConfig,
-                                   sclock: &Clock,
                                    version: &mut Version,
+                                   sclock: &Clock,
                                    ctx: &mut TxContext){
         proposal::voteBySnapshotPower(
-            propAddr,
+            prop,
             dao,
             choices,
             choiceValues,
             powerUsed,
-            snapshotReg,
             sclock,
             version,
             ctx
@@ -288,24 +267,22 @@ module gize::entries {
 
     ///User vote using token power
     public entry fun voteByCoin<TOKEN: key + store>(
-        proposalId: address,
+        prop: &mut Proposal,
         dao: &mut Dao,
         choices: vector<u8>,
         choiceValues: vector<u64>,
         coins: vector<Coin<TOKEN>>,
         powerUsed: u64,
-        snapshotReg: &DaoSnapshotConfig,
-        sclock: &Clock,
         version: &mut Version,
+        sclock: &Clock,
         ctx: &mut TxContext
     ){
-        proposal::voteByCoin<TOKEN>(proposalId,
+        proposal::voteByCoin<TOKEN>(prop,
             dao,
             choices,
             choiceValues,
             coins,
             powerUsed,
-            snapshotReg,
             sclock,
             version,
             ctx);
@@ -313,69 +290,42 @@ module gize::entries {
 
     ///User vote using NFT power
     public entry fun voteByNft<NFT: key + store>(
-        proposalId: address,
+        prop: &mut Proposal,
         dao: &mut Dao,
         choices: vector<u8>,
         choiceValues: vector<u64>,
         nfts: vector<NFT>,
         powerUsed: u64,
-        snapshotReg: &DaoSnapshotConfig,
-        sclock: &Clock,
         version: &mut Version,
+        sclock: &Clock,
         ctx: &mut TxContext
     ) {
-        proposal::voteByNfts<NFT>(proposalId,
+        proposal::voteByNfts<NFT>(prop,
             dao,
             choices,
             choiceValues,
             nfts,
             powerUsed,
-            snapshotReg,
-            sclock,
-            version,
-            ctx);
-    }
-
-    ///Anonymous user vote
-    public entry fun voteAnonymous(
-        proposalId: address,
-        dao: &mut Dao,
-        choices: vector<u8>,
-        choiceValues: vector<u64>,
-        powerUsed: u64,
-        snapshotReg: &DaoSnapshotConfig,
-        sclock: &Clock,
-        version: &mut Version,
-        ctx: &mut TxContext
-    ) {
-        proposal::voteByAnonymous(proposalId,
-            dao,
-            choices,
-            choiceValues,
-            powerUsed,
-            snapshotReg,
             sclock,
             version,
             ctx);
     }
 
     ///User unvote
-    public entry fun unvote(proposalId: address,
+    public entry fun unvote(prop: &mut Proposal,
                             dao: &mut Dao,
-                            sclock: &Clock,
                             version: &mut Version,
+                            sclock: &Clock,
                             ctx: &mut TxContext) {
-        proposal::unvote(proposalId, dao, sclock, version,ctx);
+        proposal::unvote(prop, dao, sclock, version,ctx);
     }
 
-    ///Admin finalize proposal
-    ///@todo who responsible to finalize proposal ?
-    public entry fun finalize(adminCap: &AdminCap,
-                              proposalId: address,
+    ///Owner finalize proposal
+    public entry fun finalize(prop: &mut Proposal,
                               dao: &mut Dao,
-                              sclock: &Clock,
                               version: &mut Version,
+                              sclock: &Clock,
                               ctx: &mut TxContext) {
-        proposal::finalize(adminCap, proposalId, dao, sclock, version, ctx);
+        proposal::finalize(prop, dao, sclock, version, ctx);
     }
 }

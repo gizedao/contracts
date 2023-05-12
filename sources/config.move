@@ -1,4 +1,6 @@
 module gize::config {
+    friend gize::proposal;
+
     use sui::object::UID;
     use sui::tx_context::{TxContext, sender};
     use sui::transfer::public_transfer;

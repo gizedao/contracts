@@ -10,4 +10,4 @@ Sui = { git = "https://github.com/MystenLabs/sui", subdir = "crates/sui-framewor
 gize="0x0"
 sui="0x2"
 
-dao_admin="0x6868"
+dao_admin="0x9d6f2e34e937842df89642cd96fba8509d4e47d297f716ce3a44df3070a79851"
