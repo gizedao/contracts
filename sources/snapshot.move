@@ -169,10 +169,10 @@ module gize::snapshot {
     }
 
     ///stake asset to get more power
-    public fun stakeSnapshotNft<NFT: key + store>(nfts: vector<NFT>,
-                                                  snapshotReg: &mut DaoSnapshotConfig,
-                                                  version: &mut Version,
-                                                  ctx: &mut TxContext){
+    public fun snapshotNft<NFT: key + store>(nfts: vector<NFT>,
+                                             snapshotReg: &mut DaoSnapshotConfig,
+                                             version: &mut Version,
+                                             ctx: &mut TxContext){
         checkVersion(version, VERSION);
 
         let nftSize =  vector::length(&nfts);
@@ -209,9 +209,9 @@ module gize::snapshot {
     }
 
     /// Unstake asset, power reduced
-    public fun unstakeSnapshotNft<NFT: key + store>(snapshotReg: &mut DaoSnapshotConfig,
-                                                    version: &mut Version,
-                                                    ctx: &mut TxContext){
+    public fun unsnapshotNft<NFT: key + store>(snapshotReg: &mut DaoSnapshotConfig,
+                                               version: &mut Version,
+                                               ctx: &mut TxContext){
         checkVersion(version, VERSION);
 
         //validate
@@ -238,10 +238,10 @@ module gize::snapshot {
     }
 
     ///stake asset to get more power
-    public fun stakeSnapshotToken<TOKEN>(tokens: vector<Coin<TOKEN>>,
-                                         snapshotReg: &mut DaoSnapshotConfig,
-                                         version: &mut Version,
-                                         ctx: &mut TxContext){
+    public fun snapshotToken<TOKEN>(tokens: vector<Coin<TOKEN>>,
+                                    snapshotReg: &mut DaoSnapshotConfig,
+                                    version: &mut Version,
+                                    ctx: &mut TxContext){
         checkVersion(version, VERSION);
 
         let tokenSize =  vector::length(&tokens);
@@ -284,9 +284,9 @@ module gize::snapshot {
     }
 
     ///unstake asset, power reduced
-    public fun unstakeSnapshotToken<TOKEN>(snapshotReg: &mut DaoSnapshotConfig,
-                                           version: &mut Version,
-                                           ctx: &mut TxContext){
+    public fun unsnapshotToken<TOKEN>(snapshotReg: &mut DaoSnapshotConfig,
+                                      version: &mut Version,
+                                      ctx: &mut TxContext){
         checkVersion(version, VERSION);
 
         //validate

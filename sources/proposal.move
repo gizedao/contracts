@@ -18,6 +18,9 @@ module gize::proposal {
     use gize::snapshot;
     use gize::common::transferVector;
     use gize::config::AdminCap;
+    use sui::math;
+    use gize::common;
+    use sui::math::min;
 
     const VERSION: u64 = 1;
 
@@ -164,27 +167,6 @@ module gize::proposal {
         });
     }
 
-    public fun submitProposalByAdmin(_admin: &AdminCap,
-                                     name: vector<u8>,
-                                     description: vector<u8>,
-                                     thread_link: vector<u8>,
-                                     type: u8,
-                                     vote_type: u8,
-                                     token_condition_threshold: u64,
-                                     expire: u64,
-                                     choice_codes: vector<u8>,
-                                     choice_names: vector<vector<u8>>,
-                                     choice_thresholds: vector<u64>,
-                                     dao: &mut Dao,
-                                     sclock: &Clock,
-                                     version: &mut Version,
-                                     ctx: &mut TxContext) {
-        checkVersion(version, VERSION);
-
-        submitProposal(name, description, thread_link, type, token_condition_threshold,
-            vote_type, expire, choice_codes, choice_names, choice_thresholds, dao, sclock, ctx);
-    }
-
     public fun submitProposalByOperator(name: vector<u8>,
                                         description: vector<u8>,
                                         thread_link: vector<u8>,
@@ -274,20 +256,20 @@ module gize::proposal {
     }
 
     public fun submitProposalByPower(name: vector<u8>,
-                                          description: vector<u8>,
-                                          thread_link: vector<u8>,
-                                          type: u8,
-                                          vote_power_threshold: u64,
-                                          vote_type: u8,
-                                          expire: u64,
-                                         choice_codes: vector<u8>,
-                                         choice_names: vector<vector<u8>>,
-                                         choice_thresholds: vector<u64>,
-                                          dao: &mut Dao,
-                                          sclock: &Clock,
-                                          snapshotReg: &DaoSnapshotConfig,
-                                          version: &mut Version,
-                                          ctx: &mut TxContext) {
+                                      description: vector<u8>,
+                                      thread_link: vector<u8>,
+                                      type: u8,
+                                      vote_power_threshold: u64,
+                                      vote_type: u8,
+                                      expire: u64,
+                                      choice_codes: vector<u8>,
+                                      choice_names: vector<vector<u8>>,
+                                      choice_thresholds: vector<u64>,
+                                      dao: &mut Dao,
+                                      sclock: &Clock,
+                                      snapshotReg: &DaoSnapshotConfig,
+                                      version: &mut Version,
+                                      ctx: &mut TxContext) {
         checkVersion(version, VERSION);
         let power = snapshot::getVotingPower(sender(ctx), snapshotReg);
         assert!( power >= snapshot::getThresholdSnapshot(snapshotReg) , ERR_ACCESS_DENIED);
@@ -446,14 +428,15 @@ module gize::proposal {
     ///
     /// Vote using power staked by snapshot
     ///
-    public fun voteByStakedPower(propAddr: address,
-                                 dao: &mut Dao,
-                                 choices: vector<u8>,
-                                 choice_values: vector<u64>,
-                                 snapshotReg: &DaoSnapshotConfig,
-                                 sclock: &Clock,
-                                 version: &mut Version,
-                                 ctx: &mut TxContext){
+    public fun voteBySnapshotPower(propAddr: address,
+                                   dao: &mut Dao,
+                                   choices: vector<u8>,
+                                   choiceValues: vector<u64>,
+                                   powerUsed: u64,
+                                   snapshotReg: &DaoSnapshotConfig,
+                                   sclock: &Clock,
+                                   version: &mut Version,
+                                   ctx: &mut TxContext){
         checkVersion(version, VERSION);
 
         //validate params
@@ -463,11 +446,12 @@ module gize::proposal {
         assert!(prop.state == PROP_STATE_PENDING &&(now_ms < prop.expire) && prop.type == PROPOSAL_TYPE_ONCHAIN , ERR_INVALID_STATE);
 
         //valid choices ?
-        assert!(vector::length(&choices) == vector::length(&choice_values) && vector::length(&choices) > 0, ERR_INVALID_PARAMS);
+        assert!(vector::length(&choices) == vector::length(&choiceValues) && vector::length(&choices) > 0, ERR_INVALID_PARAMS);
 
         //distribute vote
-        let powerAmt = snapshot::getVotingPower(sender(ctx), snapshotReg);
-        let userVote = distributeVote(prop, choices, choice_values, powerAmt, ctx);
+        let power = snapshot::getVotingPower(sender(ctx), snapshotReg);
+        power = math::min(power, powerUsed);
+        let userVote = distributeVote(prop, choices, choiceValues, power, ctx);
 
         //event
         emit(ProposalVotedEvent {
@@ -479,16 +463,19 @@ module gize::proposal {
     ///
     /// Directly vote by coin list
     ///
-    public fun voteByToken<TOKEN: key + store>(propAddr: address,
-                                               dao: &mut Dao,
-                                               choices: vector<u8>,
-                                               choice_values: vector<u64>,
-                                               coins: &Coin<TOKEN>,
-                                               snapshotReg: &DaoSnapshotConfig,
-                                               sclock: &Clock,
-                                               version: &mut Version,
-                                               ctx: &mut TxContext){
+    public fun voteByCoin<TOKEN: key + store>(propAddr: address,
+                                              dao: &mut Dao,
+                                              choices: vector<u8>,
+                                              choice_values: vector<u64>,
+                                              coins: vector<Coin<TOKEN>>,
+                                              powerUsed: u64,
+                                              snapshotReg: &DaoSnapshotConfig,
+                                              sclock: &Clock,
+                                              version: &mut Version,
+                                              ctx: &mut TxContext){
         checkVersion(version, VERSION);
+        let totalVal = common::totalValue(&coins);
+        assert!(totalVal > 0, ERR_INVALID_PARAMS);
 
         //validate params
         assert!(table::contains(&dao.proposals, propAddr), ERR_PROPOSAL_NOT_FOUND);
@@ -504,7 +491,12 @@ module gize::proposal {
 
         //distribute vote
         let factor = snapshot::getTokenBoostFactor<TOKEN>(snapshotReg);
-        let power = factor * coin::value(coins);
+        let power = factor * totalVal;
+        power = min(power, powerUsed);
+
+        //transfer back
+        common::transferVector(coins, sender(ctx));
+
         let userVote = distributeVote(prop, choices, choice_values, power, ctx);
 
         //event
@@ -523,6 +515,7 @@ module gize::proposal {
                                             choices: vector<u8>,
                                             choice_values: vector<u64>,
                                             nfts: vector<NFT>,
+                                            powerUsed: u64,
                                             snapshotReg: &DaoSnapshotConfig,
                                             sclock: &Clock,
                                             version: &mut Version,
@@ -542,7 +535,7 @@ module gize::proposal {
 
         //distribute vote
         let factor = snapshot::getNftBoostFactor<NFT>(snapshotReg);
-        let power = factor * vector::length(&nfts);
+        let power = math::min(powerUsed, factor * vector::length(&nfts));
         let userVote = distributeVote(prop, choices, choice_values, power, ctx);
 
         //return nfts
@@ -558,11 +551,12 @@ module gize::proposal {
     ///
     /// Directly vote by anounymous
     /// @todo consider charge fee for anonymous
-    ///
+    /// @fixme anonymous vote should redirect & checking on voteBySnapshot
     public fun voteByAnonymous(propAddr: address,
                                dao: &mut Dao,
                                choices: vector<u8>,
                                choice_values: vector<u64>,
+                               powerUsed: u64,
                                snapshotReg: &DaoSnapshotConfig,
                                sclock: &Clock,
                                version: &mut Version,
@@ -576,7 +570,7 @@ module gize::proposal {
         assert!(prop.state == PROP_STATE_PENDING &&(now_ms < prop.expire) && prop.type == PROPOSAL_TYPE_ONCHAIN, ERR_INVALID_STATE);
 
         //distribute vote
-        let power = snapshot::getAnonymousBoostFactor(snapshotReg);
+        let power = math::min(powerUsed, snapshot::getAnonymousBoostFactor(snapshotReg));
         let userVote = distributeVote(prop, choices, choice_values, power, ctx);
 
         //event
