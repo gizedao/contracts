@@ -1035,7 +1035,6 @@ module gize::proposal {
     }
 
     ///show voting power
-    /// @todo optimize
     fun getVotingPower(user: address, daoConfig: &DaoConfig): u64 {
         if(table::contains(&daoConfig.powers, user)) {
             *table::borrow(&daoConfig.powers, user)
@@ -1085,7 +1084,7 @@ module gize::proposal {
         config.boost_factor
     }
 
-    //@fixme review remove dynamic object
+    //@todo review remove dynamic object
     fun destroyAssetSnapshot(snap: AssetSnapshot){
         let AssetSnapshot{
             id,
