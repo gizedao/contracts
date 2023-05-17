@@ -1,10 +1,10 @@
 [package]
 name = "GizeDao"
 version = "0.0.1"
+published-at = "0xf6e84c774436ed4dbc9d0a0071a6b5d59c8b6d9f7a76356b8dc3b6c4f6e96b5e"
 
 [dependencies]
 Sui = { git = "https://github.com/MystenLabs/sui", subdir = "crates/sui-framework/packages/sui-framework", rev = "testnet" }
-#W3libs = { git = "https://github.com/seapad-fund/w3libs", rev = "devnet" }
 
 [addresses]
 gize="0x0"
