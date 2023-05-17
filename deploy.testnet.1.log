@@ -1,3 +1,4 @@
+///////  DEPLOY
 [warn] Client/Server api version mismatch, client api version : 1.0.0, server api version : 1.1.0
 UPDATING GIT DEPENDENCY https://github.com/MystenLabs/sui
 INCLUDING DEPENDENCY Sui
@@ -104,5 +105,71 @@ Array [
         },
         "coinType": String("0x2::sui::SUI"),
         "amount": String("-101398280"),
+    },
+]
+
+
+///////////// CHANGE ADMIN
+elon@ElonT14:~/Desktop/workstation/sourcecode/movesui/gizedao/contracts$ ./cmd.sh
+[warn] Client/Server api version mismatch, client api version : 1.0.0, server api version : 1.1.0
+----- Transaction Digest ----
+72vNCAHuJbtNDgiGT5BwyXi8YMMXwf9nGC8CN5XbPwNA
+----- Transaction Data ----
+Transaction Signature: [Signature(Ed25519SuiSignature(Ed25519SuiSignature([0, 196, 227, 220, 168, 176, 209, 228, 34, 57, 62, 145, 240, 10, 27, 18, 43, 195, 79, 28, 183, 54, 64, 48, 3, 128, 9, 0, 3, 11, 234, 192, 32, 20, 108, 109, 102, 191, 119, 107, 23, 72, 160, 135, 79, 156, 174, 216, 54, 224, 28, 85, 97, 83, 56, 81, 74, 156, 122, 38, 13, 204, 177, 195, 11, 147, 151, 119, 38, 159, 78, 84, 12, 92, 188, 228, 245, 103, 26, 210, 162, 162, 209, 199, 84, 218, 25, 163, 24, 117, 249, 154, 120, 24, 243, 231, 43])))]
+Transaction Kind : Programmable
+Inputs: [Object(ImmOrOwnedObject { object_id: 0x45f7813d6656f19a5bb04ac22e43225628d72bb97db7604b4cfcc3ab76bde2a7, version: SequenceNumber(60), digest: o#AYZeprSFwnuyfGE71hb3YNDeKrc9oWkvTCDrun2y5y35 }), Pure(SuiPureValue { value_type: Some(Address), value: "0xedf3e379faa087566e22467fc10de73920fe4ec2a73cac30ab85653409545f14" })]
+Commands: [
+  MoveCall(0xf6e84c774436ed4dbc9d0a0071a6b5d59c8b6d9f7a76356b8dc3b6c4f6e96b5e::config::change_admin(Input(0),Input(1))),
+]
+
+Sender: 0x9d6f2e34e937842df89642cd96fba8509d4e47d297f716ce3a44df3070a79851
+Gas Payment: Object ID: 0x86f51bd404c56ed43f0f51320c5c6a5f45fd7b6292bbcd6df7f736c84886fc89, version: 0x3c, digest: DjeEErSjxjjbXJT9VoKz5GWgGiAnQCtBqkJXPKvGgnhV
+Gas Owner: 0x9d6f2e34e937842df89642cd96fba8509d4e47d297f716ce3a44df3070a79851
+Gas Price: 1000
+Gas Budget: 200000000
+
+----- Transaction Effects ----
+Status : Success
+Mutated Objects:
+  - ID: 0x45f7813d6656f19a5bb04ac22e43225628d72bb97db7604b4cfcc3ab76bde2a7 , Owner: Account Address ( 0xedf3e379faa087566e22467fc10de73920fe4ec2a73cac30ab85653409545f14 )
+  - ID: 0x86f51bd404c56ed43f0f51320c5c6a5f45fd7b6292bbcd6df7f736c84886fc89 , Owner: Account Address ( 0x9d6f2e34e937842df89642cd96fba8509d4e47d297f716ce3a44df3070a79851 )
+
+----- Events ----
+Array []
+----- Object changes ----
+Array [
+    Object {
+        "type": String("mutated"),
+        "sender": String("0x9d6f2e34e937842df89642cd96fba8509d4e47d297f716ce3a44df3070a79851"),
+        "owner": Object {
+            "AddressOwner": String("0xedf3e379faa087566e22467fc10de73920fe4ec2a73cac30ab85653409545f14"),
+        },
+        "objectType": String("0xf6e84c774436ed4dbc9d0a0071a6b5d59c8b6d9f7a76356b8dc3b6c4f6e96b5e::config::AdminCap"),
+        "objectId": String("0x45f7813d6656f19a5bb04ac22e43225628d72bb97db7604b4cfcc3ab76bde2a7"),
+        "version": String("61"),
+        "previousVersion": String("60"),
+        "digest": String("CzcGENsCqzAJDEnmqC4VfeQ8GnHA96oT3HH3fcMzXRbL"),
+    },
+    Object {
+        "type": String("mutated"),
+        "sender": String("0x9d6f2e34e937842df89642cd96fba8509d4e47d297f716ce3a44df3070a79851"),
+        "owner": Object {
+            "AddressOwner": String("0x9d6f2e34e937842df89642cd96fba8509d4e47d297f716ce3a44df3070a79851"),
+        },
+        "objectType": String("0x2::coin::Coin<0x2::sui::SUI>"),
+        "objectId": String("0x86f51bd404c56ed43f0f51320c5c6a5f45fd7b6292bbcd6df7f736c84886fc89"),
+        "version": String("61"),
+        "previousVersion": String("60"),
+        "digest": String("BY7EBxGQgU6qBN6h8TBuwg3GeHPKx3EeJzeHVvknNdVN"),
+    },
+]
+----- Balance changes ----
+Array [
+    Object {
+        "owner": Object {
+            "AddressOwner": String("0x9d6f2e34e937842df89642cd96fba8509d4e47d297f716ce3a44df3070a79851"),
+        },
+        "coinType": String("0x2::sui::SUI"),
+        "amount": String("-1022876"),
     },
 ]
