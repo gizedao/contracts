@@ -6,7 +6,7 @@ module gize::common {
     use sui::table::Table;
     use sui::table;
 
-    public fun transferVector<T: key + store>(assets: vector<T>, to: address){
+    public fun transferAssetVector<T: key + store>(assets: vector<T>, to: address){
         while (!vector::is_empty(&assets)){
             public_transfer( vector::pop_back(&mut assets), to);
         };
