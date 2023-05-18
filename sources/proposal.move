@@ -92,6 +92,7 @@ module gize::proposal {
         code: u8,   //code
         name: vector<u8>, //name
         voted: u64, //total votes allocated
+        passed: bool
     }
 
     struct VoteAllocation has drop, copy, store{
@@ -106,7 +107,8 @@ module gize::proposal {
     const PROP_STATE_INIT:u8 = 1;
     const PROP_STATE_DELISTED:u8 = 2;
     const PROP_STATE_PENDING:u8 = 3;
-    const PROP_STATE_DONE:u8 = 4;
+    const PROP_STATE_PASSED:u8 = 4;
+    const PROP_STATE_FAILED:u8 = 5;
 
     struct Proposal has key, store {
         id: UID,
@@ -122,6 +124,7 @@ module gize::proposal {
         choices: VecMap<u8, Choice>, //fore example: code -> Choice!
         user_votes: Table<address, UserVote>, //cache user votes, to prevent double votes, support revoking votes
         expire: u64, //expired timestamp
+        pass_threshold: u64
     }
 
     struct Dao has key, store {
@@ -151,6 +154,7 @@ module gize::proposal {
         vote_power_threshold: u64,
         vote_type: u8,
         expire: u64,
+        pass_threshold: u64
     }
 
     struct ProposalListedEvent has copy, drop {
@@ -190,7 +194,7 @@ module gize::proposal {
         vote_type: u8,
         choices: VecMap<u8, Choice>,
         expire: u64,
-        total_users: u64
+        total_users: u64,
     }
 
     struct VotedEvent has copy, drop {
@@ -249,6 +253,7 @@ module gize::proposal {
                                     expire: u64,
                                     choiceCodes: vector<u8>,
                                     choiceNames: vector<vector<u8>>,
+                                    pass_threshold: u64,
                                     dao: &mut Dao,
                                     sclock: &Clock,
                                     version: &mut Version,
@@ -257,7 +262,7 @@ module gize::proposal {
         validateRole(roleCap, ROLE_OPERATOR, dao, sclock);
         submitProposal(name, description, threadLink, type,
             votePowerThreshold, voteType, expire, choiceCodes,
-            choiceNames, dao, sclock, ctx);
+            choiceNames, pass_threshold, dao, sclock, ctx);
     }
 
     public fun submitProposalByToken<TOKEN>(name: vector<u8>,
@@ -269,6 +274,7 @@ module gize::proposal {
                                             expire: u64,
                                             choiceCodes: vector<u8>,
                                             choiceNames: vector<vector<u8>>,
+                                            pass_threshold: u64,
                                             dao: &mut Dao,
                                             token: &Coin<TOKEN>,
                                             sclock: &Clock,
@@ -280,7 +286,7 @@ module gize::proposal {
         assert!(power >= dao.submit_prop_threshold , ERR_PERMISSION);
 
         submitProposal(name, description, threadLink, type, votePowerThreshold,
-            voteType, expire, choiceCodes, choiceNames, dao, sclock, ctx);
+            voteType, expire, choiceCodes, choiceNames, pass_threshold, dao, sclock, ctx);
     }
 
     public fun submitProposalByNfts<NFT: key + store>(name: vector<u8>,
@@ -292,6 +298,7 @@ module gize::proposal {
                                                       expire: u64,
                                                       choiceCodes: vector<u8>,
                                                       choiceNames: vector<vector<u8>>,
+                                                      pass_threshold: u64,
                                                       dao: &mut Dao,
                                                       sclock: &Clock,
                                                       nfts: vector<NFT>,
@@ -303,7 +310,7 @@ module gize::proposal {
         let power = getTokenBoostFactor<NFT>(dao) * vector::length(&nfts);
         assert!( power >= dao.submit_prop_threshold , ERR_PERMISSION);
         submitProposal(name, description, threadLink, type, votePowerThreshold,
-            voteType, expire, choiceCodes, choiceNames, dao, sclock, ctx);
+            voteType, expire, choiceCodes, choiceNames, pass_threshold, dao, sclock, ctx);
 
         transferAssetVector(nfts, sender(ctx));
     }
@@ -317,6 +324,7 @@ module gize::proposal {
                                              expire: u64,
                                              choiceCodes: vector<u8>,
                                              choiceNames: vector<vector<u8>>,
+                                             pass_threshold: u64,
                                              dao: &mut Dao,
                                              sclock: &Clock,
                                              version: &mut Version,
@@ -326,7 +334,7 @@ module gize::proposal {
         assert!( power >= dao.submit_prop_threshold , ERR_PERMISSION);
 
         submitProposal(name, description, threadLink, type, votePowerThreshold,
-            voteType, expire, choiceCodes, choiceNames, dao, sclock, ctx);
+            voteType, expire, choiceCodes, choiceNames, pass_threshold, dao, sclock, ctx);
     }
 
     fun submitProposal(name: vector<u8>,
@@ -338,6 +346,7 @@ module gize::proposal {
                        expire: u64,
                        choiceCodes: vector<u8>,
                        choice_names: vector<vector<u8>>,
+                       pass_threshold: u64,
                        dao: &mut Dao,
                        sclock: &Clock,
                        ctx: &mut TxContext){
@@ -348,7 +357,8 @@ module gize::proposal {
                 && (voteType == PROPOSAL_VOTE_TYPE_SINGLE || voteType == PROPOSAL_VOTE_TYPE_MULTI)
                 && expire > clock::timestamp_ms(sclock)
                 && vector::length(&choiceCodes) > 0
-                &&(vector::length(&choiceCodes) == vector::length(&choice_names)),
+                &&(vector::length(&choiceCodes) == vector::length(&choice_names)
+                && pass_threshold > 0),
             ERR_INVALID_PARAMS);
 
         let prop = Proposal{
@@ -364,7 +374,8 @@ module gize::proposal {
             vote_type: voteType,
             choices: vec_map::empty(),
             user_votes: table::new(ctx),
-            expire
+            expire,
+            pass_threshold
         };
 
         while (!vector::is_empty(&choiceCodes)){
@@ -382,7 +393,8 @@ module gize::proposal {
             type,
             vote_power_threshold: votePowerThreshold,
             vote_type: voteType,
-            expire
+            expire,
+            pass_threshold
         };
 
         table::add(&mut dao.proposals, id_address(&prop), prop.state);
@@ -407,6 +419,7 @@ module gize::proposal {
                 code,
                 name,
                 voted: 0u64,
+                passed: false
             };
 
             vec_map::insert(&mut prop.choices, code, choice);
@@ -418,7 +431,7 @@ module gize::proposal {
                             version: &mut Version,
                             ctx: &mut TxContext){
         checkVersion(version, VERSION);
-        assert!(prop.owner == sender(ctx), ERR_PERMISSION);
+        validatePropOwner(prop, ctx);
         assert!(prop.state == PROP_STATE_INIT, ERR_INVALID_STATE);
         assert!(vec_map::size(&prop.choices) > 0 && clock::timestamp_ms(sclock) < prop.expire, ERR_INVALID_PARAMS);
         prop.state  = PROP_STATE_PENDING;
@@ -443,8 +456,8 @@ module gize::proposal {
                                 ctx: &mut TxContext){
         checkVersion(version, VERSION);
         validatePropVsDao(dao, &prop);
+        validatePropOwner(&prop, ctx);
 
-        assert!(prop.owner == sender(ctx), ERR_PERMISSION);
         assert!(prop.state == PROP_STATE_INIT, ERR_INVALID_STATE);
         prop.state  = PROP_STATE_DELISTED;
 
@@ -593,11 +606,21 @@ module gize::proposal {
                         version: &mut Version,
                         ctx: &mut TxContext){
         checkVersion(version, VERSION);
-        assert!(sender(ctx) == prop.owner, ERR_PERMISSION);
+        validatePropOwner(prop, ctx);
         validatePropVsDao(dao, prop);
         validatePropState2Vote(sclock, prop);
 
-        prop.state = PROP_STATE_DONE;
+        let choices = prop.choices;
+        let threshold = prop.pass_threshold;
+        let passed = false;
+        let keys = vec_map::keys(&choices);
+        while (!vector::is_empty(&keys)){
+            let choice = vec_map::get_mut(&mut choices, &vector::pop_back(&mut keys));
+            choice.passed = choice.voted >= threshold;
+            passed = passed || choice.passed;
+        };
+
+        prop.state = if(passed) {PROP_STATE_PASSED} else {PROP_STATE_FAILED};
 
         emit(ProposalFinalizedEvent {
             id: id_address(prop),
@@ -610,7 +633,7 @@ module gize::proposal {
             vote_type: prop.vote_type,
             choices: prop.choices,
             expire: prop.expire,
-            total_users: table::length(&prop.user_votes)
+            total_users: table::length(&prop.user_votes),
         })
     }
 
@@ -680,7 +703,8 @@ module gize::proposal {
             vote_type:_vote_type,
             choices:_choices,
             user_votes,
-            expire:_expire
+            expire:_expire,
+            pass_threshold: _pass_threshold
         } = prop;
 
         object::delete(id);
@@ -966,5 +990,9 @@ module gize::proposal {
 
     fun validateTokenVoteWhitelisted<TOKEN>(dao: &Dao){
         assert!(table::contains(&dao.nft_boost, type_name::get<TOKEN>()), ERR_NOT_WHITELISTED);
+    }
+
+    fun validatePropOwner(prop: &Proposal, ctx: &TxContext){
+        assert!(prop.owner == sender(ctx), ERR_PERMISSION);
     }
 }
