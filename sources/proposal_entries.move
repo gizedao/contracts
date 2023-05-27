@@ -1,5 +1,5 @@
 module gize::proposal_entries {
-    use gize::proposal::{Dao, Proposal, DaoRoleCap};
+    use gize::proposal::{Dao, Proposal, DaoRoleCap, InviteCode};
     use sui::tx_context::TxContext;
     use gize::proposal;
     use sui::coin::Coin;
@@ -8,47 +8,60 @@ module gize::proposal_entries {
     use gize::config::AdminCap;
 
     ///Create DAO by admin
-    public entry fun createDao(adminCap: &AdminCap,
-                               owner: address,
-                               submitPropThres: u64,
-                               anonymousPowerFactor: u64,
-                               version: &mut Version,
-                               ctx: &mut TxContext){
-        proposal::createDao(adminCap, owner, anonymousPowerFactor, submitPropThres, version, ctx);
+    public entry fun createDaoByAdmin(adminCap: &AdminCap,
+                                      owner: address,
+                                      submitPropThres: u64,
+                                      anonymousPowerFactor: u64,
+                                      version: &mut Version,
+                                      ctx: &mut TxContext) {
+        proposal::createDaoByAdmin(adminCap, owner, anonymousPowerFactor, submitPropThres, version, ctx);
+    }
+
+    public entry fun createDaoByInviteCode(invateCode: &InviteCode,
+                                           owner: address,
+                                           submitPropThres: u64,
+                                           anonymousPowerFactor: u64,
+                                           version: &mut Version,
+                                           ctx: &mut TxContext) {
+        proposal::createDaoByInviteCode(invateCode, owner, anonymousPowerFactor, submitPropThres, version, ctx);
+    }
+
+    public entry fun joinDao(dao: &mut Dao, version: &mut Version, ctx: &mut TxContext) {
+        proposal::joinDao(dao, version, ctx);
     }
 
     ///Add new DAO admin by owner
     public entry fun setDaoAdmin(daoRoleCap: &DaoRoleCap,
-                                 adminAddr: address,
+                                 adminAddrs: vector<address>,
                                  expireTime: u64,
                                  dao: &mut Dao,
                                  sclock: &Clock,
                                  version: &mut Version,
-                                 ctx: &mut TxContext){
-        proposal::addDaoAdmin(daoRoleCap, adminAddr, expireTime, dao, version, sclock, ctx);
+                                 ctx: &mut TxContext) {
+        proposal::addDaoAdmin(daoRoleCap, adminAddrs, expireTime, dao, version, sclock, ctx);
     }
 
     ///Add new DAO operator by admin
     public entry fun setDaoOperator(roleCap: &DaoRoleCap,
-                                    operatorAddr: address,
+                                    operatorAddrs: vector<address>,
                                     expireTime: u64,
                                     dao: &mut Dao,
                                     sclock: &Clock,
                                     version: &mut Version,
-                                    ctx: &mut TxContext){
-        proposal::addDaoOperator(roleCap, operatorAddr, expireTime, dao, sclock, version, ctx);
+                                    ctx: &mut TxContext) {
+        proposal::addDaoOperator(roleCap, operatorAddrs, expireTime, dao, sclock, version, ctx);
     }
 
     public entry fun setNftBoost<NFT: key + store>(roleCap: &DaoRoleCap,
                                                    powerFactor: u64,
                                                    dao: &mut Dao,
                                                    version: &mut Version,
-                                                   sclock: &Clock){
+                                                   sclock: &Clock) {
         proposal::setNftBoost<NFT>(roleCap,
-                                    powerFactor,
-                                    dao,
-                                    sclock,
-                                    version)
+            powerFactor,
+            dao,
+            sclock,
+            version)
     }
 
 
@@ -56,40 +69,40 @@ module gize::proposal_entries {
                                           powerFactor: u64,
                                           dao: &mut Dao,
                                           version: &mut Version,
-                                          sclock: &Clock){
+                                          sclock: &Clock) {
         proposal::setTokenBoost<TOKEN>(roleCap,
-                                        powerFactor,
-                                        dao,
-                                        sclock,
-                                        version)
+            powerFactor,
+            dao,
+            sclock,
+            version)
     }
 
     public entry fun snapshotNft<NFT: key + store>(nfts: vector<NFT>,
                                                    dao: &mut Dao,
                                                    version: &mut Version,
-                                                   ctx: &mut TxContext){
+                                                   ctx: &mut TxContext) {
         proposal::snapshotNft<NFT>(nfts,
-                                    dao,
-                                    version,
-                                    ctx);
+            dao,
+            version,
+            ctx);
     }
 
     public entry fun unnapshotNft<NFT: key + store>(dao: &mut Dao,
                                                     version: &mut Version,
-                                                    ctx: &mut TxContext){
+                                                    ctx: &mut TxContext) {
         proposal::unsnapshotNft<NFT>(dao, version, ctx);
     }
 
     public entry fun snapshotToken<TOKEN>(tokens: vector<Coin<TOKEN>>,
                                           dao: &mut Dao,
                                           version: &mut Version,
-                                          ctx: &mut TxContext){
+                                          ctx: &mut TxContext) {
         proposal::snapshotToken<TOKEN>(tokens, dao, version, ctx);
     }
 
     public entry fun unsnapshotToken<TOKEN>(dao: &mut Dao,
                                             version: &mut Version,
-                                            ctx: &mut TxContext){
+                                            ctx: &mut TxContext) {
         proposal::unsnapshotToken<TOKEN>(dao, version, ctx);
     }
 
@@ -163,21 +176,21 @@ module gize::proposal_entries {
     }
 
     ///Sumbit proposal directly using NFT collections
-    public entry  fun submitProposalByNfts<NFT: key + store>(name: vector<u8>,
-                                                             description: vector<u8>,
-                                                             threadLink: vector<u8>,
-                                                             type: u8,
-                                                             votePowerThreshold: u64,
-                                                             voteType: u8,
-                                                             expire: u64,
-                                                             choiceCodes: vector<u8>,
-                                                             choiceNames: vector<vector<u8>>,
-                                                             pass_threshold: u64,
-                                                             dao: &mut Dao,
-                                                             nfts: vector<NFT>,
-                                                             version: &mut Version,
-                                                             sclock: &Clock,
-                                                             ctx: &mut TxContext) {
+    public entry fun submitProposalByNfts<NFT: key + store>(name: vector<u8>,
+                                                            description: vector<u8>,
+                                                            threadLink: vector<u8>,
+                                                            type: u8,
+                                                            votePowerThreshold: u64,
+                                                            voteType: u8,
+                                                            expire: u64,
+                                                            choiceCodes: vector<u8>,
+                                                            choiceNames: vector<vector<u8>>,
+                                                            pass_threshold: u64,
+                                                            dao: &mut Dao,
+                                                            nfts: vector<NFT>,
+                                                            version: &mut Version,
+                                                            sclock: &Clock,
+                                                            ctx: &mut TxContext) {
         proposal::submitProposalByNfts<NFT>(
             name,
             description,
@@ -231,7 +244,7 @@ module gize::proposal_entries {
     public entry fun delistProposal(prop: Proposal,
                                     dao: &mut Dao,
                                     version: &mut Version,
-                                    ctx: &mut TxContext){
+                                    ctx: &mut TxContext) {
         proposal::delistProposal(prop, dao, version, ctx);
     }
 
@@ -240,7 +253,7 @@ module gize::proposal_entries {
     public entry fun listProposal(prop: &mut Proposal,
                                   version: &mut Version,
                                   sclock: &Clock,
-                                  ctx: &mut TxContext){
+                                  ctx: &mut TxContext) {
         proposal::listProposal(prop, sclock, version, ctx);
     }
 
@@ -253,7 +266,7 @@ module gize::proposal_entries {
                                    powerUsed: u64,
                                    version: &mut Version,
                                    sclock: &Clock,
-                                   ctx: &mut TxContext){
+                                   ctx: &mut TxContext) {
         proposal::voteBySnapshotPower(
             prop,
             dao,
@@ -275,7 +288,7 @@ module gize::proposal_entries {
         version: &mut Version,
         sclock: &Clock,
         ctx: &mut TxContext
-    ){
+    ) {
         proposal::voteByToken<TOKEN>(prop,
             dao,
             choices,
@@ -313,7 +326,7 @@ module gize::proposal_entries {
                             version: &mut Version,
                             sclock: &Clock,
                             ctx: &mut TxContext) {
-        proposal::unvote(prop, dao, sclock, version,ctx);
+        proposal::unvote(prop, dao, sclock, version, ctx);
     }
 
     ///Owner finalize proposal

@@ -12,9 +12,9 @@ module gize::proposal {
     use std::vector;
     use std::type_name::TypeName;
     use std::type_name;
-    use sui::object::{UID, id_address};
+    use sui::object::{UID, id_address, new};
     use sui::tx_context::{TxContext, sender};
-    use sui::transfer::{public_share_object, share_object, transfer};
+    use sui::transfer::{public_share_object, share_object, transfer, public_transfer};
     use sui::object;
     use sui::table::Table;
     use sui::table;
@@ -34,6 +34,9 @@ module gize::proposal {
     use gize::common::transferAssetVector;
     use gize::config::AdminCap;
     use gize::common;
+    use sui::vec_set::VecSet;
+    use sui::vec_set;
+    use sui::tx_context;
 
     struct PROPOSAL has drop {}
 
@@ -58,23 +61,33 @@ module gize::proposal {
 
     const ERR_DAO_RUNNING: u64 = 2002;
 
-    const PROPOSAL_TYPE_ONCHAIN: u8 = 1;  //on chain, ready for voting
+    const PROPOSAL_TYPE_ONCHAIN: u8 = 1;
+    //on chain, ready for voting
     const PROPOSAL_TYPE_OFFCHAIN: u8 = 2; //off chain, no need to vote
 
-    const PROPOSAL_VOTE_TYPE_SINGLE: u8 = 1;  //single choice only
-    const PROPOSAL_VOTE_TYPE_MULTI: u8 = 2; //multi choice with the same weight
+    const PROPOSAL_VOTE_TYPE_SINGLE: u8 = 1;
+    //single choice only
+    const PROPOSAL_VOTE_TYPE_MULTI: u8 = 2;
+    //multi choice with the same weight
     const PROPOSAL_VOTE_TYPE_MULTI_QUADRATIC: u8 = 3; //multi choice with the weight allocated by quadratic
 
-    const ROLE_OWNER: u8 = 4; //0000 0100
-    const ROLE_ADMIN: u8 = 2; //0000 0010
+    const ROLE_OWNER: u8 = 4;
+    //0000 0100
+    const ROLE_ADMIN: u8 = 2;
+    //0000 0010
     const ROLE_OPERATOR: u8 = 1; //0000 0001
 
     const ONE_HOURS_IN_MS: u64 = 3600000;
 
+    struct InviteCode has key, store {
+        id: UID
+    }
+
     struct DaoRoleCap has key, store {
         id: UID,
         role: u8,
-        expire_time: u64, //0: mean never expired!
+        expire_time: u64,
+        //0: mean never expired!
         dao: address
     }
 
@@ -89,54 +102,84 @@ module gize::proposal {
     }
 
     struct Choice has drop, copy, store {
-        code: u8,   //code
-        name: vector<u8>, //name
-        voted: u64, //total votes allocated
+        code: u8,
+        //code
+        name: vector<u8>,
+        //name
+        voted: u64,
+        //total votes allocated
         passed: bool
     }
 
-    struct VoteAllocation has drop, copy, store{
+    struct VoteAllocation has drop, copy, store {
         choice: u8,
         allocation: u64
     }
+
     struct UserVote has drop, copy, store {
         power: u64,
         allocations: vector<VoteAllocation>
     }
 
-    const PROP_STATE_INIT:u8 = 1;
-    const PROP_STATE_DELISTED:u8 = 2;
-    const PROP_STATE_PENDING:u8 = 3;
-    const PROP_STATE_PASSED:u8 = 4;
-    const PROP_STATE_FAILED:u8 = 5;
+    const PROP_STATE_INIT: u8 = 1;
+    const PROP_STATE_DELISTED: u8 = 2;
+    const PROP_STATE_PENDING: u8 = 3;
+    const PROP_STATE_PASSED: u8 = 4;
+    const PROP_STATE_FAILED: u8 = 5;
 
     struct Proposal has key, store {
         id: UID,
-        owner: address, //owner of prop
-        dao: address,   //DAO belongs to
+        owner: address,
+        //owner of prop
+        dao: address,
+        //DAO belongs to
         state: u8,
         name: vector<u8>,
         description: vector<u8>,
-        thread_link: vector<u8>, //offchain discussion
-        type: u8, //on chain|off chain
-        vote_power_threshold: u64, //minimum power allowed to vote
-        vote_type: u8, //single | multiple weighted. multiple equally is one special case of multiple weighted
-        choices: VecMap<u8, Choice>, //fore example: code -> Choice!
-        user_votes: Table<address, UserVote>, //cache user votes, to prevent double votes, support revoking votes
-        expire: u64, //expired timestamp
+        thread_link: vector<u8>,
+        //offchain discussion
+        type: u8,
+        //on chain|off chain
+        vote_power_threshold: u64,
+        //minimum power allowed to vote
+        vote_type: u8,
+        //single | multiple weighted. multiple equally is one special case of multiple weighted
+        choices: VecMap<u8, Choice>,
+        //fore example: code -> Choice!
+        user_votes: Table<address, UserVote>,
+        //cache user votes, to prevent double votes, support revoking votes
+        expire: u64,
+        //expired timestamp
         pass_threshold: u64
     }
 
     struct Dao has key, store {
         id: UID,
         owner: address,
-        submit_prop_threshold: u64,   //submit proposal threshold
-        anonymous_boost: BoostConfig,   //anonymous boost factor
-        nft_boost: Table<TypeName, BoostConfig>,   //nft whitelist & factor
-        token_boost: Table<TypeName, BoostConfig>,  //token whitelist & factor
-        powers: Table<address, u64>, //vote power by snapshoting asset
-        asset_snapshot: Table<address, AssetSnapshot>, //asset snapshot bag
-        proposals: Table<address, u8>
+        submit_prop_threshold: u64,
+        //submit proposal threshold
+        anonymous_boost: BoostConfig,
+        //anonymous boost factor
+        nft_boost: Table<TypeName, BoostConfig>,
+        //nft whitelist & factor
+        token_boost: Table<TypeName, BoostConfig>,
+        //token whitelist & factor
+        powers: Table<address, u64>,
+        //vote power by snapshoting asset
+        asset_snapshot: Table<address, AssetSnapshot>,
+        //asset snapshot bag
+        proposals: Table<address, u8>,
+        members: VecSet<address>,
+    }
+
+    struct DaoMemberJoinEvent has copy, drop {
+        id: address,
+        member: address,
+    }
+
+    struct GenInviteCodeEvent has copy, drop {
+        id: address,
+        owner: address
     }
 
     struct DaoCreatedEvent has copy, drop {
@@ -212,12 +255,29 @@ module gize::proposal {
         choice: Choice
     }
 
-    public fun createDao(_admin: &AdminCap,
-                         owner: address,
-                         submitPropThres: u64,
-                         anonymousPowerFactor: u64,
-                         version: &mut Version,
-                         ctx: &mut TxContext){
+    public fun createDaoByAdmin(_admin: &AdminCap,
+                                owner: address,
+                                submitPropThres: u64,
+                                anonymousPowerFactor: u64,
+                                version: &mut Version,
+                                ctx: &mut TxContext) {
+        createDao(owner, submitPropThres, anonymousPowerFactor, version, ctx);
+    }
+
+    public fun createDaoByInviteCode(_inviteCode: &InviteCode,
+                                     owner: address,
+                                     submitPropThres: u64,
+                                     anonymousPowerFactor: u64,
+                                     version: &mut Version,
+                                     ctx: &mut TxContext) {
+        createDao(owner, submitPropThres, anonymousPowerFactor, version, ctx);
+    }
+
+    fun createDao(owner: address,
+                  submitPropThres: u64,
+                  anonymousPowerFactor: u64,
+                  version: &mut Version,
+                  ctx: &mut TxContext) {
         checkVersion(version, VERSION);
         let dao = Dao {
             id: object::new(ctx),
@@ -230,11 +290,12 @@ module gize::proposal {
             token_boost: table::new(ctx),
             powers: table::new(ctx),
             asset_snapshot: table::new(ctx),
-            proposals: table::new(ctx)
+            proposals: table::new(ctx),
+            members: vec_set::empty()
         };
 
         let daoId = id_address(&dao);
-        transfer(DaoRoleCap {id: object::new(ctx), role: ROLE_OWNER, expire_time: 0, dao: daoId,}, owner);
+        transfer(DaoRoleCap { id: object::new(ctx), role: ROLE_OWNER, expire_time: 0, dao: daoId, }, owner);
         public_share_object(dao);
 
         emit(DaoCreatedEvent {
@@ -283,7 +344,7 @@ module gize::proposal {
         checkVersion(version, VERSION);
         validateTokenVoteWhitelisted<TOKEN>(dao);
         let power = getTokenBoostFactor<TOKEN>(dao) * coin::value(token);
-        assert!(power >= dao.submit_prop_threshold , ERR_PERMISSION);
+        assert!(power >= dao.submit_prop_threshold, ERR_PERMISSION);
 
         submitProposal(name, description, threadLink, type, votePowerThreshold,
             voteType, expire, choiceCodes, choiceNames, pass_threshold, dao, sclock, ctx);
@@ -308,7 +369,7 @@ module gize::proposal {
         validateNftVoteWhitelisted<NFT>(dao);
 
         let power = getTokenBoostFactor<NFT>(dao) * vector::length(&nfts);
-        assert!( power >= dao.submit_prop_threshold , ERR_PERMISSION);
+        assert!(power >= dao.submit_prop_threshold, ERR_PERMISSION);
         submitProposal(name, description, threadLink, type, votePowerThreshold,
             voteType, expire, choiceCodes, choiceNames, pass_threshold, dao, sclock, ctx);
 
@@ -331,7 +392,7 @@ module gize::proposal {
                                              ctx: &mut TxContext) {
         checkVersion(version, VERSION);
         let power = getVotingPower(sender(ctx), dao);
-        assert!( power >= dao.submit_prop_threshold , ERR_PERMISSION);
+        assert!(power >= dao.submit_prop_threshold, ERR_PERMISSION);
 
         submitProposal(name, description, threadLink, type, votePowerThreshold,
             voteType, expire, choiceCodes, choiceNames, pass_threshold, dao, sclock, ctx);
@@ -349,19 +410,18 @@ module gize::proposal {
                        pass_threshold: u64,
                        dao: &mut Dao,
                        sclock: &Clock,
-                       ctx: &mut TxContext){
-
+                       ctx: &mut TxContext) {
         assert!(vector::length(&description) > 0
-                && vector::length(&threadLink) > 0
-                && (type == PROPOSAL_TYPE_ONCHAIN || type == PROPOSAL_TYPE_OFFCHAIN)
-                && (voteType == PROPOSAL_VOTE_TYPE_SINGLE || voteType == PROPOSAL_VOTE_TYPE_MULTI)
-                && expire > clock::timestamp_ms(sclock)
-                && vector::length(&choiceCodes) > 0
-                &&(vector::length(&choiceCodes) == vector::length(&choice_names)
-                && pass_threshold > 0),
+            && vector::length(&threadLink) > 0
+            && (type == PROPOSAL_TYPE_ONCHAIN || type == PROPOSAL_TYPE_OFFCHAIN)
+            && (voteType == PROPOSAL_VOTE_TYPE_SINGLE || voteType == PROPOSAL_VOTE_TYPE_MULTI)
+            && expire > clock::timestamp_ms(sclock)
+            && vector::length(&choiceCodes) > 0
+            && (vector::length(&choiceCodes) == vector::length(&choice_names)
+            && pass_threshold > 0),
             ERR_INVALID_PARAMS);
 
-        let prop = Proposal{
+        let prop = Proposal {
             id: object::new(ctx),
             owner: sender(ctx),
             dao: id_address(dao),
@@ -378,10 +438,10 @@ module gize::proposal {
             pass_threshold
         };
 
-        while (!vector::is_empty(&choiceCodes)){
+        while (!vector::is_empty(&choiceCodes)) {
             addProposalChoice(vector::pop_back(&mut choiceCodes),
-                        vector::pop_back(&mut choice_names),
-            &mut prop);
+                vector::pop_back(&mut choice_names),
+                &mut prop);
         };
 
         let event = ProposalSubmittedEvent {
@@ -403,19 +463,19 @@ module gize::proposal {
     }
 
     fun addProposalChoice(code: u8,
-                           name: vector<u8>,
-                           prop: &mut Proposal){
+                          name: vector<u8>,
+                          prop: &mut Proposal) {
         assert!((code < MAX_CHOICES)
-                && vector::length(&name) > 0
-                && vec_map::contains(&mut prop.choices, &code)
-                , ERR_INVALID_CHOICE);
+            && vector::length(&name) > 0
+            && vec_map::contains(&mut prop.choices, &code)
+            , ERR_INVALID_CHOICE);
 
-        if(vec_map::contains(&mut prop.choices, &code)){
+        if (vec_map::contains(&mut prop.choices, &code)) {
             let choice = vec_map::get_mut(&mut prop.choices, &code);
             choice.name = name;
             choice.voted = 0;
-        } else{
-            let choice =  Choice {
+        } else {
+            let choice = Choice {
                 code,
                 name,
                 voted: 0u64,
@@ -429,12 +489,12 @@ module gize::proposal {
     public fun listProposal(prop: &mut Proposal,
                             sclock: &Clock,
                             version: &mut Version,
-                            ctx: &mut TxContext){
+                            ctx: &mut TxContext) {
         checkVersion(version, VERSION);
         validatePropOwner(prop, ctx);
         assert!(prop.state == PROP_STATE_INIT, ERR_INVALID_STATE);
         assert!(vec_map::size(&prop.choices) > 0 && clock::timestamp_ms(sclock) < prop.expire, ERR_INVALID_PARAMS);
-        prop.state  = PROP_STATE_PENDING;
+        prop.state = PROP_STATE_PENDING;
 
         emit(ProposalListedEvent {
             id: id_address(prop),
@@ -451,15 +511,15 @@ module gize::proposal {
     }
 
     public fun delistProposal(prop: Proposal,
-                                dao: &mut Dao,
-                                version: &mut Version,
-                                ctx: &mut TxContext){
+                              dao: &mut Dao,
+                              version: &mut Version,
+                              ctx: &mut TxContext) {
         checkVersion(version, VERSION);
         validatePropVsDao(dao, &prop);
         validatePropOwner(&prop, ctx);
 
         assert!(prop.state == PROP_STATE_INIT, ERR_INVALID_STATE);
-        prop.state  = PROP_STATE_DELISTED;
+        prop.state = PROP_STATE_DELISTED;
 
         let propId = id_address(&prop);
         emit(ProposalDelistedEvent {
@@ -487,7 +547,7 @@ module gize::proposal {
                                    powerUsed: u64,
                                    sclock: &Clock,
                                    version: &mut Version,
-                                   ctx: &mut TxContext){
+                                   ctx: &mut TxContext) {
         checkVersion(version, VERSION);
         validatePropVsDao(dao, prop);
         validatePropState2Vote(sclock, prop);
@@ -513,7 +573,7 @@ module gize::proposal {
                                                powerUsed: u64,
                                                sclock: &Clock,
                                                version: &mut Version,
-                                               ctx: &mut TxContext){
+                                               ctx: &mut TxContext) {
         checkVersion(version, VERSION);
         validatePropVsDao(dao, prop);
         validatePropState2Vote(sclock, prop);
@@ -549,7 +609,7 @@ module gize::proposal {
                                             powerUsed: u64,
                                             sclock: &Clock,
                                             version: &mut Version,
-                                            ctx: &mut TxContext){
+                                            ctx: &mut TxContext) {
         checkVersion(version, VERSION);
         validatePropVsDao(dao, prop);
         validatePropState2Vote(sclock, prop);
@@ -574,7 +634,7 @@ module gize::proposal {
                       dao: &mut Dao,
                       sclock: &Clock,
                       version: &mut Version,
-                      ctx: &mut TxContext){
+                      ctx: &mut TxContext) {
         checkVersion(version, VERSION);
         validatePropVsDao(dao, prop);
         validatePropState2Vote(sclock, prop);
@@ -583,9 +643,9 @@ module gize::proposal {
         assert!(table::contains(&prop.user_votes, senderAddr), ERR_NOT_VOTED);
 
         let userVote = table::remove(&mut prop.user_votes, senderAddr);
-        let allocs  = &mut userVote.allocations;
+        let allocs = &mut userVote.allocations;
 
-        while (!vector::is_empty(allocs)){
+        while (!vector::is_empty(allocs)) {
             let alloc = vector::pop_back(allocs);
             let choice = vec_map::get_mut(&mut prop.choices, &alloc.choice);
             choice.voted = choice.voted - alloc.allocation;
@@ -604,7 +664,7 @@ module gize::proposal {
                         dao: &mut Dao,
                         sclock: &Clock,
                         version: &mut Version,
-                        ctx: &mut TxContext){
+                        ctx: &mut TxContext) {
         checkVersion(version, VERSION);
         validatePropOwner(prop, ctx);
         validatePropVsDao(dao, prop);
@@ -614,13 +674,13 @@ module gize::proposal {
         let threshold = prop.pass_threshold;
         let passed = false;
         let keys = vec_map::keys(&choices);
-        while (!vector::is_empty(&keys)){
+        while (!vector::is_empty(&keys)) {
             let choice = vec_map::get_mut(&mut choices, &vector::pop_back(&mut keys));
             choice.passed = choice.voted >= threshold;
             passed = passed || choice.passed;
         };
 
-        prop.state = if(passed) {PROP_STATE_PASSED} else {PROP_STATE_FAILED};
+        prop.state = if (passed) { PROP_STATE_PASSED } else { PROP_STATE_FAILED };
 
         emit(ProposalFinalizedEvent {
             id: id_address(prop),
@@ -649,7 +709,7 @@ module gize::proposal {
         //now distribute vote
         let allocations = vector::empty<VoteAllocation>();
 
-        if(prop.vote_type == PROPOSAL_VOTE_TYPE_SINGLE){
+        if (prop.vote_type == PROPOSAL_VOTE_TYPE_SINGLE) {
             //allocate all power to single choice
             assert!(vector::length(&choices) == 1, ERR_INVALID_PARAMS);
             let choiceType = *vector::borrow(&choices, 0);
@@ -660,11 +720,11 @@ module gize::proposal {
                 allocation: power
             });
         }
-        else if(prop.vote_type == PROPOSAL_VOTE_TYPE_MULTI){
+        else if (prop.vote_type == PROPOSAL_VOTE_TYPE_MULTI) {
             //allocate to multi choices: how many percent scaled of power amount allocated for each type ?
             let index = 0;
-            let subPower = power/vector::length(&choices);
-            while (index < vector::length(&choices)){
+            let subPower = power / vector::length(&choices);
+            while (index < vector::length(&choices)) {
                 let choiceType = *vector::borrow(&choices, index);
                 let choice = vec_map::get_mut(&mut prop.choices, &choiceType);
                 choice.voted = choice.voted + subPower;
@@ -675,7 +735,7 @@ module gize::proposal {
                 });
             };
         }
-        else if(prop.vote_type == PROPOSAL_VOTE_TYPE_MULTI_QUADRATIC){
+        else if (prop.vote_type == PROPOSAL_VOTE_TYPE_MULTI_QUADRATIC) {
             abort ERR_NOT_SUPPORTED
         };
 
@@ -689,7 +749,7 @@ module gize::proposal {
         userVote
     }
 
-    fun destroyProposal(prop: Proposal){
+    fun destroyProposal(prop: Proposal) {
         let Proposal {
             id,
             owner: _owner,
@@ -698,12 +758,12 @@ module gize::proposal {
             name: _name,
             description: _description,
             thread_link: _thread_link,
-            type:_type,
-            vote_power_threshold:_vote_power_threshold,
-            vote_type:_vote_type,
-            choices:_choices,
+            type: _type,
+            vote_power_threshold: _vote_power_threshold,
+            vote_type: _vote_type,
+            choices: _choices,
             user_votes,
-            expire:_expire,
+            expire: _expire,
             pass_threshold: _pass_threshold
         } = prop;
 
@@ -712,48 +772,67 @@ module gize::proposal {
     }
 
     public fun addDaoAdmin(roleCap: &DaoRoleCap,
-                           adminAddr: address,
+                           adminAddrs: vector<address>,
                            expireTime: u64,
                            dao: &mut Dao,
                            version: &mut Version,
                            sclock: &Clock,
-                           ctx: &mut TxContext){
+                           ctx: &mut TxContext) {
         checkVersion(version, VERSION);
         validateRole(roleCap, ROLE_OWNER, dao, sclock);
-        assert!(timestamp_ms(sclock) + ONE_HOURS_IN_MS < expireTime , ERR_INVALID_PARAMS);
-        transfer(DaoRoleCap {
-            id: object::new(ctx),
-            role: ROLE_ADMIN,
-            expire_time: expireTime,
-            dao: id_address(dao)
-        }, adminAddr);
+        assert!(timestamp_ms(sclock) + ONE_HOURS_IN_MS < expireTime, ERR_INVALID_PARAMS);
+
+        let (i, n) = (0, vector::length(&adminAddrs));
+        while (i < n) {
+            let admin = vector::pop_back(&mut adminAddrs);
+            transfer(DaoRoleCap {
+                id: object::new(ctx),
+                role: ROLE_ADMIN,
+                expire_time: expireTime,
+                dao: id_address(dao)
+            }, admin);
+
+            i = i + 1;
+        };
     }
 
     public fun addDaoOperator(roleCap: &DaoRoleCap,
-                              opAddr: address,
+                              opAddr: vector<address>,
                               expireTime: u64,
                               dao: &mut Dao,
                               sclock: &Clock,
                               version: &mut Version,
-                              ctx: &mut TxContext){
+                              ctx: &mut TxContext) {
         checkVersion(version, VERSION);
         validateRole(roleCap, ROLE_ADMIN, dao, sclock);
         assert!(expireTime > clock::timestamp_ms(sclock), ERR_INVALID_PARAMS);
         assert!(table::length(&dao.asset_snapshot) == 0, ERR_DAO_RUNNING);
-        transfer(DaoRoleCap { id: object::new(ctx), expire_time: expireTime, role: ROLE_OPERATOR, dao: id_address(dao)}, opAddr);
+
+        let (i, n) = (0, vector::length(&opAddr));
+        while (i < n) {
+            let opAddr = vector::pop_back(&mut opAddr);
+            transfer(DaoRoleCap {
+                id: object::new(ctx),
+                expire_time: expireTime,
+                role: ROLE_OPERATOR,
+                dao: id_address(dao)
+            }, opAddr);
+
+            i = i + 1;
+        };
     }
 
     public fun setNftBoost<NFT: key + store>(roleCap: &DaoRoleCap,
                                              power_factor: u64,
                                              dao: &mut Dao,
                                              sclock: &Clock,
-                                             version: &mut Version){
+                                             version: &mut Version) {
         checkVersion(version, VERSION);
         validateRole(roleCap, ROLE_ADMIN, dao, sclock);
         assert!(table::length(&dao.asset_snapshot) == 0, ERR_DAO_RUNNING);
 
         let typeName = type_name::get<NFT>();
-        if(table::contains(&dao.nft_boost, typeName)){
+        if (table::contains(&dao.nft_boost, typeName)) {
             table::remove(&mut dao.nft_boost, typeName);
         };
 
@@ -766,14 +845,14 @@ module gize::proposal {
                                     boostFactor: u64,
                                     dao: &mut Dao,
                                     sclock: &Clock,
-                                    version: &mut Version){
+                                    version: &mut Version) {
         checkVersion(version, VERSION);
         validateRole(roleCap, ROLE_ADMIN, dao, sclock);
         assert!(table::length(&dao.asset_snapshot) == 0, ERR_DAO_RUNNING);
 
         let typeName = type_name::get<TOKEN>();
         let tokenBoost = &mut dao.token_boost;
-        if(table::contains(tokenBoost, typeName)){
+        if (table::contains(tokenBoost, typeName)) {
             table::remove(tokenBoost, typeName);
         };
 
@@ -786,10 +865,10 @@ module gize::proposal {
     public fun snapshotNft<NFT: key + store>(nfts: vector<NFT>,
                                              dao: &mut Dao,
                                              version: &mut Version,
-                                             ctx: &mut TxContext){
+                                             ctx: &mut TxContext) {
         checkVersion(version, VERSION);
 
-        let nftSize =  vector::length(&nfts);
+        let nftSize = vector::length(&nfts);
         let typeName = type_name::get<NFT>();
 
         //validate
@@ -800,7 +879,7 @@ module gize::proposal {
         let senderAddr = sender(ctx);
 
         //init snapshot bag
-        if(!table::contains(&mut dao.asset_snapshot, senderAddr)){
+        if (!table::contains(&mut dao.asset_snapshot, senderAddr)) {
             table::add(&mut dao.asset_snapshot, senderAddr, AssetSnapshot {
                 id: object::new(ctx),
                 total_object: 0
@@ -808,7 +887,7 @@ module gize::proposal {
         };
 
         let snapshot = table::borrow_mut(&mut dao.asset_snapshot, senderAddr);
-        if(!dynamic_field::exists_(&snapshot.id, typeName)){
+        if (!dynamic_field::exists_(&snapshot.id, typeName)) {
             dynamic_field::add(&mut snapshot.id, typeName, vector::empty<NFT>())
         };
 
@@ -825,7 +904,7 @@ module gize::proposal {
     /// Unstake asset, power reduced
     public fun unsnapshotNft<NFT: key + store>(dao: &mut Dao,
                                                version: &mut Version,
-                                               ctx: &mut TxContext){
+                                               ctx: &mut TxContext) {
         checkVersion(version, VERSION);
 
         //validate
@@ -847,9 +926,9 @@ module gize::proposal {
         //reduce power
         snapshot.total_object = snapshot.total_object - nftSize;
         let powerConfig = table::borrow(nftBoost, typeName);
-        common::decreaseTable(powers, senderAddr, nftSize* powerConfig.factor);
+        common::decreaseTable(powers, senderAddr, nftSize * powerConfig.factor);
 
-        if(snapshot.total_object == 0){
+        if (snapshot.total_object == 0) {
             destroyAssetSnapshot(table::remove(snapshots, senderAddr));
             table::remove(&mut dao.powers, senderAddr);
         };
@@ -859,7 +938,7 @@ module gize::proposal {
     public fun snapshotToken<TOKEN>(tokens: vector<Coin<TOKEN>>,
                                     dao: &mut Dao,
                                     version: &mut Version,
-                                    ctx: &mut TxContext){
+                                    ctx: &mut TxContext) {
         checkVersion(version, VERSION);
 
         let typeName = type_name::get<TOKEN>();
@@ -876,12 +955,12 @@ module gize::proposal {
         let joinedToken = coin::zero<TOKEN>(ctx);
         pay::join_vec(&mut joinedToken, tokens);
         let tokenVal = coin::value(&joinedToken);
-        assert!( tokenVal > 0, ERR_INVALID_PARAMS);
+        assert!(tokenVal > 0, ERR_INVALID_PARAMS);
 
         let senderAddr = sender(ctx);
 
         //init snapshot bag
-        if(!table::contains(snapshots, senderAddr)){
+        if (!table::contains(snapshots, senderAddr)) {
             table::add(snapshots, senderAddr, AssetSnapshot {
                 id: object::new(ctx),
                 total_object: 0
@@ -889,7 +968,7 @@ module gize::proposal {
         };
 
         let snapshot = table::borrow_mut(snapshots, senderAddr);
-        if(!dynamic_field::exists_(&snapshot.id, typeName)){
+        if (!dynamic_field::exists_(&snapshot.id, typeName)) {
             dynamic_field::add(&mut snapshot.id, typeName, vector::empty<Coin<TOKEN>>())
         };
 
@@ -906,7 +985,7 @@ module gize::proposal {
     ///unstake asset, power reduced
     public fun unsnapshotToken<TOKEN>(dao: &mut Dao,
                                       version: &mut Version,
-                                      ctx: &mut TxContext){
+                                      ctx: &mut TxContext) {
         checkVersion(version, VERSION);
         let senderAddr = sender(ctx);
         let snapshots = &mut dao.asset_snapshot;
@@ -928,14 +1007,37 @@ module gize::proposal {
         let powerConfig = table::borrow(nftBoost, typeName);
         common::decreaseTable(powers, senderAddr, assetVal * powerConfig.factor);
 
-        if(snapshot.total_object == 0){
+        if (snapshot.total_object == 0) {
             destroyAssetSnapshot(table::remove(snapshots, senderAddr));
             table::remove(powers, senderAddr);
         };
     }
 
+    public fun joinDao(dao: &mut Dao, version: &mut Version, ctx: &mut TxContext) {
+        checkVersion(version, VERSION);
+        let member_address = tx_context::sender(ctx);
+        vec_set::insert(&mut dao.members, member_address);
+        emit(DaoMemberJoinEvent {
+            id: id_address(dao),
+            member: member_address
+        })
+    }
+
+    public fun generateInviteCode(_adminCap: &AdminCap, to: address, version: &mut Version, ctx: &mut TxContext) {
+        checkVersion(version, VERSION);
+        let inviteCode = InviteCode { id: new(ctx) };
+
+        emit(GenInviteCodeEvent{
+            id: id_address(&inviteCode),
+            owner: to
+        });
+
+        public_transfer(inviteCode, to);
+
+    }
+
     fun getVotingPower(user: address, dao: &Dao): u64 {
-        if(table::contains(&dao.powers, user)) {
+        if (table::contains(&dao.powers, user)) {
             *table::borrow(&dao.powers, user)
         }
         else {
@@ -943,17 +1045,17 @@ module gize::proposal {
         }
     }
 
-     fun getTokenBoostFactor<TOKEN>(dao: &Dao): u64{
+    fun getTokenBoostFactor<TOKEN>(dao: &Dao): u64 {
         table::borrow(&dao.token_boost, type_name::get<TOKEN>()).factor
     }
 
-     fun getNftBoostFactor<NFT>(dao: &Dao): u64 {
-       table::borrow(&dao.nft_boost, type_name::get<NFT>()).factor
+    fun getNftBoostFactor<NFT>(dao: &Dao): u64 {
+        table::borrow(&dao.nft_boost, type_name::get<NFT>()).factor
     }
 
-    fun destroyAssetSnapshot(snap: AssetSnapshot){
+    fun destroyAssetSnapshot(snap: AssetSnapshot) {
         assert!(snap.total_object == 0, ERR_SNAPSHOT_NOT_EMPTY);
-        let AssetSnapshot{
+        let AssetSnapshot {
             id,
             total_object: _total_object,
         } = snap;
@@ -961,7 +1063,7 @@ module gize::proposal {
         object::delete(id);
     }
 
-    fun validateRole(roleCap: &DaoRoleCap, minRole: u8, dao: &Dao, sclock: &Clock){
+    fun validateRole(roleCap: &DaoRoleCap, minRole: u8, dao: &Dao, sclock: &Clock) {
         let daoId = id_address(dao);
         let timestamp_ms = clock::timestamp_ms(sclock);
         assert!(roleCap.dao == daoId
@@ -970,29 +1072,29 @@ module gize::proposal {
             ERR_PERMISSION);
     }
 
-    fun validatePropVsDao(dao: &Dao, prop: &Proposal){
+    fun validatePropVsDao(dao: &Dao, prop: &Proposal) {
         assert!(table::contains(&dao.proposals, id_address(prop))
-            && (prop.dao == id_address(dao)) ,
+            && (prop.dao == id_address(dao)),
             ERR_INVALID_PARAMS);
     }
 
-    fun validatePropState2Vote(sclock: &Clock, prop: &Proposal){
+    fun validatePropState2Vote(sclock: &Clock, prop: &Proposal) {
         let now_ms = clock::timestamp_ms(sclock);
         assert!(prop.state == PROP_STATE_PENDING
-            &&(now_ms < prop.expire)
-            && prop.type == PROPOSAL_TYPE_ONCHAIN ,
+            && (now_ms < prop.expire)
+            && prop.type == PROPOSAL_TYPE_ONCHAIN,
             ERR_INVALID_STATE);
     }
 
-    fun validateNftVoteWhitelisted<NFT: key + store>(dao: &Dao){
+    fun validateNftVoteWhitelisted<NFT: key + store>(dao: &Dao) {
         assert!(table::contains(&dao.nft_boost, type_name::get<NFT>()), ERR_NOT_WHITELISTED);
     }
 
-    fun validateTokenVoteWhitelisted<TOKEN>(dao: &Dao){
+    fun validateTokenVoteWhitelisted<TOKEN>(dao: &Dao) {
         assert!(table::contains(&dao.nft_boost, type_name::get<TOKEN>()), ERR_NOT_WHITELISTED);
     }
 
-    fun validatePropOwner(prop: &Proposal, ctx: &TxContext){
+    fun validatePropOwner(prop: &Proposal, ctx: &TxContext) {
         assert!(prop.owner == sender(ctx), ERR_PERMISSION);
     }
 }
