@@ -41,7 +41,12 @@ module gize::proposal_entries {
         proposal::addDaoAdmin(daoRoleCap, adminAddrs, expireTime, dao, version, sclock, ctx);
     }
 
-    ///Add new DAO operator by admin
+    public entry fun generateInviteCode(_adminCap: &AdminCap, to: address, version: &mut Version, ctx: &mut TxContext){
+        proposal::generateInviteCode(_adminCap, to, version, ctx);
+    }
+
+
+        ///Add new DAO operator by admin
     public entry fun setDaoOperator(roleCap: &DaoRoleCap,
                                     operatorAddrs: vector<address>,
                                     expireTime: u64,
